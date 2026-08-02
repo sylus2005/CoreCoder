@@ -1,0 +1,192 @@
+/* CoreCoder Security Agent — Modern Dashboard Global Styles */
+
+/* ── Gradient palette ── */
+:root {
+  --gradient-primary: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  --gradient-blue: linear-gradient(135deg, #4f46e5 0%, #6366f1 50%, #7c3aed 100%);
+  --gradient-card: linear-gradient(135deg, #ffffff 0%, #f8f9ff 100%);
+  --shadow-soft: 0 2px 12px rgba(79, 70, 229, 0.08);
+  --shadow-card: 0 4px 24px rgba(79, 70, 229, 0.10);
+  --shadow-hover: 0 8px 32px rgba(79, 70, 229, 0.15);
+  --radius-lg: 16px;
+  --radius-md: 12px;
+  --radius-sm: 8px;
+  --color-critical: #ef4444;
+  --color-high: #f97316;
+  --color-medium: #eab308;
+  --color-low: #22c55e;
+  --color-info: #3b82f6;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+    'Helvetica Neue', Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background: #f0f2f5;
+  color: #1e293b;
+  overflow: hidden;
+  height: 100%;
+}
+
+/* Terminal text uses monospace */
+.terminal-text, .log-line, .audit-log pre {
+  font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+}
+
+#root {
+  width: 100%;
+  max-width: 100%;
+  height: 100%;
+  margin: 0;
+}
+
+/* ── App Layout: ensure header is always visible ── */
+.app-layout {
+  height: 100vh;
+  overflow: hidden;
+}
+.app-layout > .ant-layout-header {
+  flex-shrink: 0;
+}
+
+/* ── Scrollbar (light theme) ── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #e8eaed;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb {
+  background: #c4c7cc;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #a0a4ab;
+}
+
+/* ── Gradient header bar ── */
+.header-gradient {
+  background: var(--gradient-blue) !important;
+  box-shadow: 0 2px 16px rgba(79, 70, 229, 0.25);
+  z-index: 10;
+  position: relative;
+}
+
+/* ── Drag & Drop upload zone ── */
+.drop-zone {
+  border: 2px dashed #e2e8f0;
+  border-radius: 12px;
+  padding: 24px 16px;
+  text-align: center;
+  cursor: pointer;
+  background: #fafbfc;
+  transition: all 0.25s ease;
+}
+.drop-zone:hover {
+  border-color: #6366f1;
+  background: linear-gradient(135deg, #eef2ff 0%, #faf5ff 100%);
+}
+.drop-zone.drag-over {
+  border-color: #6366f1;
+  background: linear-gradient(135deg, #eef2ff 0%, #faf5ff 100%);
+  box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.1);
+}
+
+/* ── Stat card with accent border ── */
+.stat-card {
+  background: #ffffff !important;
+  border: none !important;
+  border-radius: var(--radius-md) !important;
+  box-shadow: var(--shadow-soft) !important;
+  transition: all 0.3s ease;
+  overflow: hidden;
+}
+.stat-card:hover {
+  box-shadow: var(--shadow-hover) !important;
+  transform: translateY(-2px);
+}
+.stat-card .ant-statistic-title {
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* ── Content card ── */
+.content-card {
+  background: #ffffff !important;
+  border: none !important;
+  border-radius: var(--radius-lg) !important;
+  box-shadow: var(--shadow-soft) !important;
+}
+.content-card .ant-card-head {
+  border-bottom: 1px solid #f1f5f9;
+}
+.content-card .ant-card-head-title {
+  color: #334155;
+  font-weight: 600;
+}
+
+/* ── Table overrides (light) ── */
+.ant-table {
+  background: #ffffff !important;
+  color: #334155 !important;
+}
+.ant-table-thead > tr > th {
+  background: #f8fafc !important;
+  color: #64748b !important;
+  border-color: #f1f5f9 !important;
+  font-weight: 600 !important;
+  font-size: 12px !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.5px !important;
+}
+.ant-table-tbody > tr > td {
+  border-color: #f1f5f9 !important;
+  color: #334155 !important;
+}
+.ant-table-tbody > tr:hover > td {
+  background: #f8f9ff !important;
+}
+
+/* ── Tag overrides ── */
+.ant-tag {
+  border-radius: 6px;
+  font-weight: 500;
+}
+
+/* ── Layout overrides ── */
+.ant-layout {
+  background: #f0f2f5 !important;
+}
+.ant-layout-sider {
+  background: #ffffff !important;
+  box-shadow: 2px 0 12px rgba(0,0,0,0.04);
+}
+
+/* ── Input overrides ── */
+.ant-input {
+  border-radius: 8px;
+}
+
+/* ── Button overrides ── */
+.ant-btn {
+  border-radius: 8px;
+}
+
+/* ── Expandable row ── */
+.finding-expand-row {
+  background: #f8f9ff;
+  border-radius: 8px;
+  padding: 16px 20px;
+}
