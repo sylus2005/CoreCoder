@@ -48,6 +48,11 @@ class Agent:
 
     def chat(self, user_input: str, on_token=None, on_tool=None) -> str:
         """Process one user message. May involve multiple LLM/tool rounds."""
+
+        # ★ 根据用户输入动态构建系统提示词并实际应用
+        from .prompt import build_system_prompt
+        self._system = build_system_prompt(self.tools, user_input)
+        
         self.messages.append({"role": "user", "content": user_input})
         self.context.maybe_compress(self.messages, self.llm)
 
