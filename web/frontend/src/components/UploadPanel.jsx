@@ -9,15 +9,12 @@ import {
   CloudUploadOutlined,
   FileOutlined,
   DeleteOutlined,
-  SendOutlined,
   PaperClipOutlined,
   InboxOutlined,
 } from '@ant-design/icons';
 import { uploadFiles } from '../api';
 
 const { Text, Title } = Typography;
-const { TextArea } = Input;
-
 const TOOLS_INFO = [
   {
     name: 'c_review',
@@ -52,9 +49,7 @@ export default function UploadPanel({
   onFilesUploaded,
   uploadedFiles,
   onClearFiles,
-  requirements,
-  onRequirementsChange,
-  onStartAudit,
+  children,
 }) {
   const [isDragOver, setIsDragOver] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -157,16 +152,51 @@ export default function UploadPanel({
     e.target.value = '';
   }, [processFiles]);
 
-  const handleKeyDown = useCallback((e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      onStartAudit?.();
-    }
-  }, [onStartAudit]);
-
   return (
     <div>
-      {/* ── File Upload Section ── */}
+      {/* ── 1. Audit Pipeline (最上面) ── */}
+      <div style={{ marginBottom: 16 }}>
+        <Title level={5} style={{ color: '#334155', marginBottom: 4, fontSize: 14, fontWeight: 600 }}>
+          <ThunderboltFilled style={{ marginRight: 8, color: '#7c3aed' }} />
+          Audit Pipeline
+        </Title>
+        <Text style={{ color: '#94a3b8', fontSize: 11 }}>
+          3-Phase: Recon → Hunt → Report
+        </Text>
+
+        {/* Pipeline visualization */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 0, marginTop: 12, marginBottom: 4 }}>
+          {['Recon', 'Hunt', 'Report'].map((phase, i) => (
+            <React.Fragment key={phase}>
+              <div style={{
+                flex: 1,
+                textAlign: 'center',
+                background: 'linear-gradient(135deg, #6366f1, #7c3aed)',
+                color: '#fff',
+                borderRadius: 8,
+                padding: '8px 6px',
+                fontSize: 11,
+                fontWeight: 600,
+                letterSpacing: '0.3px',
+              }}>
+                {i === 0 ? '🔍 ' : i === 1 ? '⚔️ ' : '📝 '}
+                {phase}
+              </div>
+              {i < 2 && (
+                <div style={{
+                  width: 20, height: 2,
+                  background: 'linear-gradient(90deg, #7c3aed, #6366f1)',
+                  flexShrink: 0,
+                }} />
+              )}
+            </React.Fragment>
+          ))}
+        </div>
+      </div>
+
+      <Divider style={{ borderColor: '#f1f5f9', margin: '16px 0' }} />
+
+      {/* ── 2. File Upload Section ── */}
       <div style={{ marginBottom: 20 }}>
         <Title level={5} style={{ color: '#334155', marginBottom: 12, fontSize: 14, fontWeight: 600 }}>
           <CloudUploadOutlined style={{ marginRight: 8, color: '#6366f1' }} />
@@ -291,7 +321,7 @@ export default function UploadPanel({
 
       <Divider style={{ borderColor: '#f1f5f9', margin: '16px 0' }} />
 
-      {/* ── Project Target Path ── */}
+      {/* ── 3. Target Path ── */}
       <div style={{ marginBottom: 20 }}>
         <Title level={5} style={{ color: '#334155', marginBottom: 12, fontSize: 14, fontWeight: 600 }}>
           <FolderOutlined style={{ marginRight: 8, color: '#6366f1' }} />
@@ -315,78 +345,16 @@ export default function UploadPanel({
         </Text>
       </div>
 
-      <Divider style={{ borderColor: '#f1f5f9', margin: '16px 0' }} />
+      {/* ── 4. Children slot (History Panel injected here) ── */}
+      {children && (
+        <>
+          <Divider style={{ borderColor: '#f1f5f9', margin: '16px 0' }} />
+          {children}
+          <Divider style={{ borderColor: '#f1f5f9', margin: '16px 0' }} />
+        </>
+      )}
 
-      {/* ── Requirements / Chat Input ── */}
-      <div style={{ marginBottom: 20 }}>
-        <Title level={5} style={{ color: '#334155', marginBottom: 12, fontSize: 14, fontWeight: 600 }}>
-          <SendOutlined style={{ marginRight: 8, color: '#7c3aed' }} />
-          Audit Requirements
-        </Title>
-        <TextArea
-          value={requirements}
-          onChange={(e) => onRequirementsChange(e.target.value)}
-          onKeyDown={handleKeyDown}
-          disabled={disabled}
-          placeholder={'Describe what you want to audit...\ne.g. "审计这个项目的SQL注入漏洞" or "检查C代码的内存安全问题"\nPress Enter to send'}
-          rows={3}
-          style={{
-            borderRadius: 10,
-            borderColor: '#e2e8f0',
-            fontSize: 13,
-            resize: 'none',
-          }}
-        />
-        <Text style={{ color: '#94a3b8', fontSize: 11, display: 'block', marginTop: 4 }}>
-          Describe your audit needs in natural language
-        </Text>
-      </div>
-
-      <Divider style={{ borderColor: '#f1f5f9', margin: '16px 0' }} />
-
-      {/* ── Audit Pipeline Section ── */}
-      <div style={{ marginBottom: 16 }}>
-        <Title level={5} style={{ color: '#334155', marginBottom: 4, fontSize: 14, fontWeight: 600 }}>
-          <ThunderboltFilled style={{ marginRight: 8, color: '#7c3aed' }} />
-          Audit Pipeline
-        </Title>
-        <Text style={{ color: '#94a3b8', fontSize: 11 }}>
-          3-Phase: Recon → Hunt → Report
-        </Text>
-
-        {/* Pipeline visualization */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 0, marginTop: 12, marginBottom: 16 }}>
-          {['Recon', 'Hunt', 'Report'].map((phase, i) => (
-            <React.Fragment key={phase}>
-              <div style={{
-                flex: 1,
-                textAlign: 'center',
-                background: 'linear-gradient(135deg, #6366f1, #7c3aed)',
-                color: '#fff',
-                borderRadius: 8,
-                padding: '8px 6px',
-                fontSize: 11,
-                fontWeight: 600,
-                letterSpacing: '0.3px',
-              }}>
-                {i === 0 ? '🔍 ' : i === 1 ? '⚔️ ' : '📝 '}
-                {phase}
-              </div>
-              {i < 2 && (
-                <div style={{
-                  width: 20, height: 2,
-                  background: 'linear-gradient(90deg, #7c3aed, #6366f1)',
-                  flexShrink: 0,
-                }} />
-              )}
-            </React.Fragment>
-          ))}
-        </div>
-      </div>
-
-      <Divider style={{ borderColor: '#f1f5f9', margin: '16px 0' }} />
-
-      {/* ── Enabled Tools Section ── */}
+      {/* ── 5. Enabled Tools Section (最下面) ── */}
       <div>
         <Title level={5} style={{ color: '#334155', marginBottom: 12, fontSize: 14, fontWeight: 600 }}>
           <ToolOutlined style={{ marginRight: 8, color: '#6366f1' }} />

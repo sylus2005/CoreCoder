@@ -13,6 +13,8 @@ from .security.c_review import CReviewTool
 from .security.insecure_defaults import InsecureDefaultsTool
 from .security.injection_scanner import InjectionScannerTool
 from .security.audit_tool import AuditTool
+from .report_docx import GenerateDocxReportTool
+from .report_pptx import GeneratePptxReportTool
 
 ALL_TOOLS = [
     BashTool(),
@@ -28,6 +30,8 @@ ALL_TOOLS = [
     InsecureDefaultsTool(),
     InjectionScannerTool(),
     AuditTool(),
+    GenerateDocxReportTool(),
+    GeneratePptxReportTool(),
 ]
 
 

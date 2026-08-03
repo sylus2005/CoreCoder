@@ -104,13 +104,14 @@ export function connectAuditStream(auditId, callbacks = {}) {
  * 启动 LLM Agent 对话 (AI 驱动审计)
  * @param {string} message - 用户自然语言消息
  * @param {string} target - 审计目标路径
- * @returns {Promise<{chat_id: string, status: string}>}
+ * @param {string} sessionId - 可选: 会话 ID (用于多轮对话连贯性)
+ * @returns {Promise<{chat_id: string, status: string, session_id: string}>}
  */
-export async function startChat(message, target = '') {
+export async function startChat(message, target = '', sessionId = '') {
   const res = await fetch(`${API_BASE}/api/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message, target }),
+    body: JSON.stringify({ message, target, session_id: sessionId }),
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
@@ -172,7 +173,17 @@ export async function getReport(auditId) {
 }
 
 /**
+ * 下载 Agent 对话报告 (Word/Markdown)
+ * @param {string} chatId - 对话 ID
+ * @param {string} format - 输出格式 (docx | md)
+ */
+export function downloadChatReport(chatId, format = 'docx') {
+  window.open(`${API_BASE}/api/chat/${chatId}/report?format=${format}`, '_blank');
+}
+
+/**
  * 健康检查
+ * @returns {Promise<object>}
  */
 export async function healthCheck() {
   const res = await fetch(`${API_BASE}/api/health`);

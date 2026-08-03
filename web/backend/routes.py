@@ -47,6 +47,12 @@ def set_audit_store(store: dict):
     _audits = store
 
 
+def _write_file(path: Path, content: bytes):
+    """同步写入文件（在线程池中调用，避免阻塞事件循环）。"""
+    with open(path, "wb") as f:
+        f.write(content)
+
+
 # ── 内部: 运行审计流水线 ─────────────────────────────────────
 
 async def _run_audit(audit_id: str, req: AuditRequest):
@@ -165,21 +171,26 @@ async def upload_files(
     upload_dir.mkdir(parents=True, exist_ok=True)
 
     saved_files = []
+    loop = asyncio.get_running_loop()
     for f in files:
         # 保留相对路径结构（支持文件夹上传）
         rel_path = f.filename or "unknown"
-        # 安全处理路径分隔符
+        # 安全处理路径分隔符和路径穿越
         rel_path = rel_path.replace("\\", "/")
         if rel_path.startswith("/"):
             rel_path = rel_path[1:]
+        # 防止路径穿越攻击
+        rel_path = _os.path.normpath(rel_path)
+        if rel_path.startswith(".."):
+            rel_path = rel_path.lstrip("./")
 
         dest_path = upload_dir / rel_path
         dest_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # 异步读取并写入
+        # 异步读取
         content = await f.read()
-        with open(dest_path, "wb") as dest:
-            dest.write(content)
+        # ★ 在线程池中执行磁盘 I/O，避免阻塞事件循环
+        await loop.run_in_executor(None, lambda p=dest_path, c=content: _write_file(p, c))
         saved_files.append(str(dest_path.relative_to(upload_dir)))
 
     return UploadResponse(
@@ -319,18 +330,34 @@ async def list_audits():
 # ── Chat 存储 ────────────────────────────────────────────────
 
 _chats: dict[str, dict] = {}
+_agents: dict[str, object] = {}  # session_id -> Agent 实例，用于多轮对话
+_MAX_SESSIONS = 20  # 最多保留的会话数
+
+
+def _cleanup_old_sessions():
+    """清理最旧的会话，防止内存泄漏."""
+    if len(_agents) > _MAX_SESSIONS:
+        # 按创建时间排序，删除最旧的
+        excess = len(_agents) - _MAX_SESSIONS
+        old_keys = sorted(_agents.keys())[:excess]
+        for k in old_keys:
+            del _agents[k]
+    if len(_chats) > _MAX_SESSIONS * 2:
+        excess = len(_chats) - _MAX_SESSIONS * 2
+        old_keys = sorted(_chats.keys())[:excess]
+        for k in old_keys:
+            del _chats[k]
 
 
 # ── 内部: 运行 LLM Agent 对话 ──────────────────────────────
 
-async def _run_chat(chat_id: str, message: str, target: str = ""):
+async def _run_chat(chat_id: str, message: str, target: str = "", session_id: str = ""):
     """在后台运行 CoreCoder Agent，将响应推送到 SSE 队列.
 
     核心设计:
     - ★ 智能预读: 从用户需求中提取文件名 → 在目标目录中找到并预读
-    - ★ 小目录全预读: ≤8 文件且 <30KB 时全部预读，Agent 无需 read_file
-    - ★ 绝对路径: 预读时使用绝对路径，解决 uvicorn CWD ≠ 项目根的问题
-    - ★ 不撒谎: 只有真正预读了代码时才说"不需要 read_file"
+    - ★ 多轮对话: 同一 session_id 复用 Agent 实例，保留上下文
+    - ★ 内存保护: 自动清理超过 20 个会话的旧 Agent
     - ★ Token 批量推送: 50ms/20token 批次，减少跨线程调度开销
     - ★ 超时保护: asyncio.wait_for(timeout=120)
     """
@@ -340,6 +367,9 @@ async def _run_chat(chat_id: str, message: str, target: str = ""):
     if not chat:
         return
     q: asyncio.Queue = chat["event_queue"]
+
+    # 确保 session_id 与 chat 关联
+    actual_session_id = session_id or chat.get("session_id", "") or chat_id
 
     try:
         # ── 步骤1: 解析目标路径 ──
@@ -442,6 +472,18 @@ async def _run_chat(chat_id: str, message: str, target: str = ""):
                 if to_list:
                     remaining_files = [str(f.relative_to(target_path)) for f in to_list]
 
+        # ★ 增强提示：强调必须使用绝对路径，避免 CWD 依赖
+        path_prefix_hint = ""
+        if abs_target_dir:
+            # 将 Path 对象转为规范化的绝对路径字符串（统一使用正斜杠）
+            abs_dir_str = str(abs_target_dir).replace("\\", "/")
+            path_prefix_hint = (
+                f"\n> ⚠️ **重要**: 所有工具参数中的文件路径必须使用绝对路径。\n"
+                f"> 工作目录: `{abs_dir_str}`\n"
+                f"> 正确示例: `c_review(file_path=\"{abs_dir_str}/auth.c\")`\n"
+                f"> 错误示例: `c_review(file_path=\"auth.c\")`\n"
+            )
+
         # ── 步骤2: 构造消息 (根据实际预读内容决定指令) ──
         has_code = bool(pre_read_contents)
 
@@ -509,6 +551,7 @@ async def _run_chat(chat_id: str, message: str, target: str = ""):
                 f"---\n"
                 f"请分析以上代码，调用合适的审计工具进行安全检测，"
                 f"然后给出综合审计结论、漏洞列表和修复建议。"
+                f"{path_prefix_hint}"
             )
         elif abs_target_dir:
             # 没有预读到代码: 告诉 Agent 自己读
@@ -547,6 +590,7 @@ async def _run_chat(chat_id: str, message: str, target: str = ""):
                 f"请首先使用 read_file 读取需要分析的文件（使用上面的绝对路径），"
                 f"然后调用审计工具(c_review/insecure_defaults/injection_scanner)进行检测，"
                 f"最后给出综合审计结论和修复建议。"
+                f"{path_prefix_hint}"
             )
         else:
             full_message = message
@@ -562,23 +606,32 @@ async def _run_chat(chat_id: str, message: str, target: str = ""):
             await q.put({"type": "done", "content": ""})
             return
 
-        await q.put({
-            "type": "log",
-            "message": f"🤖 CoreCoder Agent 启动 (model: {config['model']})",
-        })
-
         from corecoder.llm import LLM
         from corecoder.agent import Agent
 
-        llm = LLM(
-            model=config["model"],
-            api_key=config["api_key"],
-            base_url=config.get("base_url"),
-            max_tokens=config.get("max_tokens", 4096),
-            temperature=config.get("temperature", 0.0),
-        )
-
-        agent = Agent(llm=llm, max_rounds=8)
+        # ★ 多轮对话: 同一 session 复用 Agent，保留消息历史
+        use_existing = actual_session_id in _agents
+        if use_existing:
+            agent = _agents[actual_session_id]
+            await q.put({
+                "type": "log",
+                "message": f"🤖 继续对话 (model: {config['model']}, session: {actual_session_id[:12]}...)",
+            })
+        else:
+            llm = LLM(
+                model=config["model"],
+                api_key=config["api_key"],
+                base_url=config.get("base_url"),
+                max_tokens=config.get("max_tokens", 4096),
+                temperature=config.get("temperature", 0.0),
+            )
+            agent = Agent(llm=llm, max_rounds=8)
+            _agents[actual_session_id] = agent
+            _cleanup_old_sessions()
+            await q.put({
+                "type": "log",
+                "message": f"🤖 CoreCoder Agent 启动 (model: {config['model']})",
+            })
 
         await q.put({
             "type": "log",
@@ -593,10 +646,9 @@ async def _run_chat(chat_id: str, message: str, target: str = ""):
             import os as _os_module
 
             # ★ 关键修复: 切换 CWD 到项目根目录
-            # uvicorn 从 web/backend/ 启动，CWD 是 web/backend/
-            # 但工具 (read_file, c_review, insecure_defaults) 使用 open(file_path)
-            # 相对路径从 CWD 解析 → 全部 404 → Agent 重试 → 超时
-            _old_cwd = _os_module.getcwd()
+            # uvicorn 从 web/backend/ 启动，工具使用相对路径从 CWD 解析
+            # 同一进程内所有线程都需要 project_root 作为 CWD
+            # 不恢复旧 CWD，因为所有线程目标相同，不会有竞态
             _os_module.chdir(str(project_root))
 
             content_parts = []
@@ -633,6 +685,14 @@ async def _run_chat(chat_id: str, message: str, target: str = ""):
 
             def on_tool(tool_name: str, tool_args: dict):
                 args_short = {k: str(v)[:100] for k, v in tool_args.items()}
+                # ★ 关键: 当 Agent 调用 generate_docx_report 时，将 report content
+                # 存储到 chat 字典中，供后续的下载/预览端点使用。
+                # 如果不捕获，chat["content"] 只会是 Agent 的最终文本回复
+                # （如 "✅ Word 报告已生成！"），而不是实际报告内容。
+                if tool_name == "generate_docx_report" and "content" in tool_args:
+                    report_content = tool_args["content"]
+                    if report_content and len(report_content) > 50:
+                        chat["report_content"] = report_content
                 # 推送工具调用事件给前端展示
                 asyncio.run_coroutine_threadsafe(
                     q.put({
@@ -660,9 +720,6 @@ async def _run_chat(chat_id: str, message: str, target: str = ""):
                 traceback.print_exc()
                 batcher.flush()
                 return f"Error: {e}", "".join(content_parts)
-            finally:
-                # 恢复原始 CWD
-                _os_module.chdir(_old_cwd)
 
         # 超时保护
         result_text, streamed_content = await asyncio.wait_for(
@@ -671,6 +728,8 @@ async def _run_chat(chat_id: str, message: str, target: str = ""):
         )
 
         display_text = streamed_content or result_text
+        # 存储最终内容供报告下载
+        chat["content"] = display_text
         await q.put({
             "type": "log",
             "message": "✅ Agent 分析完成",
@@ -748,6 +807,8 @@ async def start_chat(req: ChatRequest):
     Agent 会自主决定调用哪些工具（read_file / c_review / insecure_defaults 等），
     结果通过 SSE 实时流式推送前端。
 
+    支持多轮对话: 传入 session_id 可复用之前的 Agent 上下文。
+
     与 POST /api/audit (纯正则 Pipeline) 的区别:
     - /api/audit: 快速正则扫描，无 LLM 参与
     - /api/chat:  LLM Agent 理解意图 → 调用工具 → 分析代码 → 综合结论
@@ -755,6 +816,7 @@ async def start_chat(req: ChatRequest):
     import uuid
 
     chat_id = f"chat-{uuid.uuid4().hex[:8]}"
+    session_id = req.session_id or chat_id  # 新会话用 chat_id 作为 session_id
 
     event_queue: asyncio.Queue = asyncio.Queue()
     _chats[chat_id] = {
@@ -762,17 +824,377 @@ async def start_chat(req: ChatRequest):
         "status": "running",
         "message": req.message,
         "target": req.target,
-        "session_id": req.session_id,
+        "session_id": session_id,
         "events": [],
         "event_queue": event_queue,
     }
 
+    _cleanup_old_sessions()
+
     # 用 asyncio.create_task 在事件循环中调度 _run_chat
-    # (_run_chat 内部会用 asyncio.to_thread 处理阻塞的 LLM 调用)
-    asyncio.create_task(_run_chat(chat_id, req.message, req.target))
+    asyncio.create_task(_run_chat(chat_id, req.message, req.target, session_id))
 
-    return ChatResponse(chat_id=chat_id, status="running")
+    return ChatResponse(chat_id=chat_id, status="running", session_id=session_id)
 
+
+@router.get("/chat/{chat_id}/report")
+async def get_chat_report(chat_id: str, format: str = "docx"):
+    """获取 Agent 对话报告，支持 Word (.docx) 格式下载.
+
+    用法:
+        GET /api/chat/{chat_id}/report?format=docx
+
+    ★ 报告内容优先级:
+    1. chat["report_content"] — generate_docx_report 工具调用时捕获的实际报告内容
+    2. chat["content"] — Agent 的最终文本回复（降级方案）
+
+    如果只有 chat["content"]（Agent 的 "✅ Word 报告已生成！" 回复），
+    则尝试在同 session 的其他 chat 中查找更早的分析报告内容。
+
+    Args:
+        chat_id: 对话 ID
+        format: 输出格式 (docx | md)
+    """
+    chat = _chats.get(chat_id)
+    if not chat:
+        raise HTTPException(status_code=404, detail="Chat session not found")
+
+    # ★ 优先使用工具调用时捕获的报告内容，其次当前 chat 的文本回复
+    content = chat.get("report_content", "") or chat.get("content", "")
+
+    # ★ 降级方案: 如果当前 chat 内容太短（只是成功消息），
+    # 在同 session 的其他 chat 中查找更长的分析报告内容
+    session_id = chat.get("session_id", "")
+    if (not content or len(content) < 200) and session_id:
+        for cid, c in _chats.items():
+            if cid == chat_id:
+                continue
+            if c.get("session_id") == session_id:
+                alt_content = c.get("content", "")
+                if len(alt_content) > len(content):
+                    content = alt_content
+
+    if not content:
+        raise HTTPException(status_code=400, detail="No content available yet. Agent may still be running.")
+
+    if format == "md":
+        # 直接返回 Markdown 文本
+        return StreamingResponse(
+            iter([content.encode("utf-8")]),
+            media_type="text/markdown",
+            headers={
+                "Content-Disposition": f"attachment; filename=SECURITY_REPORT_{chat_id}.md",
+            },
+        )
+
+    # format == "docx": 生成 Word 文档
+    import io as _io
+
+    # ★ 在线程池中执行 docx 生成，避免阻塞事件循环
+    # python-docx 的 XML 处理是 CPU 密集型操作，大报告可能需要数秒
+    loop = asyncio.get_running_loop()
+    try:
+        docx_bytes = await loop.run_in_executor(
+            None, _generate_security_report_docx, content, chat,
+        )
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to generate Word report: {str(e)}",
+        )
+
+    return StreamingResponse(
+        _io.BytesIO(docx_bytes),
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={
+            "Content-Disposition": f"attachment; filename=SECURITY_REPORT_{chat_id}.docx",
+        },
+    )
+
+
+def _generate_security_report_docx(markdown_content: str, chat: dict) -> bytes:
+    """将 Agent 响应的 Markdown 内容转换为 Word 文档.
+
+    解析规则:
+    - # 标题 → Heading 1 (报告标题)
+    - ## 标题 → Heading 2 (章节标题)
+    - ### 标题 → Heading 3 (子章节)
+    - **粗体** → 粗体 inline
+    - ```代码块``` → 等宽字体段落
+    - | 表格 | → Word 表格
+    - 普通段落 → 正文段落
+    - --- → 分节线
+    """
+    import re
+    from docx import Document
+    from docx.shared import Pt, Inches, Cm, RGBColor
+    from docx.enum.text import WD_PARAGRAPH_ALIGNMENT, WD_LINE_SPACING
+    from docx.enum.table import WD_TABLE_ALIGNMENT
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+
+    doc = Document()
+
+    # ── 页面设置 ──
+    section = doc.sections[0]
+    section.page_width = Cm(21.0)
+    section.page_height = Cm(29.7)
+    section.left_margin = Cm(2.5)
+    section.right_margin = Cm(2.5)
+    section.top_margin = Cm(2.5)
+    section.bottom_margin = Cm(2.5)
+
+    # ── 默认样式 ──
+    style = doc.styles["Normal"]
+    style.font.name = "Calibri"
+    style.font.size = Pt(11)
+    style.paragraph_format.line_spacing_rule = WD_LINE_SPACING.MULTIPLE
+    style.paragraph_format.line_spacing = 1.5
+
+    def set_font(run, name="Calibri", size=11, bold=False, color=None, mono=False):
+        """设置 run 字体属性."""
+        run.font.name = "Consolas" if mono else name
+        run.font.size = Pt(size)
+        run.bold = bold
+        if color:
+            run.font.color.rgb = RGBColor(*color)
+
+    def add_styled_paragraph(text, font_name="Calibri", size=11, bold=False, color=None,
+                              alignment=None, space_after=6, mono=False):
+        """添加带样式的段落."""
+        para = doc.add_paragraph()
+        run = para.add_run(text)
+        set_font(run, font_name, size, bold, color, mono)
+        if alignment is not None:
+            para.alignment = alignment
+        para.paragraph_format.space_after = Pt(space_after)
+        return para
+
+    # ── 解析 Markdown ──
+    lines = markdown_content.split("\n")
+    i = 0
+    in_code_block = False
+    code_lines = []
+    code_lang = ""
+
+    while i < len(lines):
+        line = lines[i]
+
+        # 代码块处理
+        if line.strip().startswith("```"):
+            if in_code_block:
+                # 结束代码块
+                code_text = "\n".join(code_lines)
+                if code_text.strip():
+                    # 添加代码块背景段落
+                    para = doc.add_paragraph()
+                    para.paragraph_format.space_before = Pt(6)
+                    para.paragraph_format.space_after = Pt(6)
+                    para.paragraph_format.left_indent = Cm(0.5)
+                    run = para.add_run(code_text)
+                    set_font(run, mono=True, size=9, color=(50, 50, 50))
+                code_lines = []
+                in_code_block = False
+            else:
+                # 开始代码块
+                in_code_block = True
+                code_lang = line.strip()[3:].strip()
+            i += 1
+            continue
+
+        if in_code_block:
+            code_lines.append(line)
+            i += 1
+            continue
+
+        # 空行
+        if not line.strip():
+            i += 1
+            continue
+
+        stripped = line.strip()
+
+        # ── 标题 ──
+        if stripped.startswith("# ") and not stripped.startswith("## "):
+            text = stripped[2:]
+            add_styled_paragraph(text, size=22, bold=True, color=(30, 41, 59),
+                                  alignment=WD_PARAGRAPH_ALIGNMENT.CENTER, space_after=12)
+            # 标题下划线
+            para = doc.add_paragraph()
+            para.paragraph_format.space_after = Pt(16)
+            run = para.add_run("─" * 50)
+            set_font(run, size=8, color=(180, 180, 180))
+
+        elif stripped.startswith("## "):
+            text = stripped[3:]
+            add_styled_paragraph(text, size=16, bold=True, color=(30, 41, 59), space_after=8)
+
+        elif stripped.startswith("### "):
+            text = stripped[4:]
+            add_styled_paragraph(text, size=13, bold=True, color=(51, 65, 85), space_after=6)
+
+        elif stripped.startswith("#### "):
+            text = stripped[5:]
+            add_styled_paragraph(text, size=12, bold=True, color=(71, 85, 105), space_after=4)
+
+        # ── 水平线 ──
+        elif stripped in ("---", "***", "___"):
+            para = doc.add_paragraph()
+            para.paragraph_format.space_before = Pt(8)
+            para.paragraph_format.space_after = Pt(8)
+            run = para.add_run("─" * 60)
+            set_font(run, size=8, color=(200, 200, 200))
+
+        # ── 表格 ──
+        elif stripped.startswith("|") and stripped.endswith("|"):
+            # 收集表格行
+            table_rows = []
+            while i < len(lines) and lines[i].strip().startswith("|") and lines[i].strip().endswith("|"):
+                row_line = lines[i].strip()
+                # 跳过分隔行 (| --- | --- |)
+                if not re.match(r'^\|[\s\-:]+\|', row_line):
+                    cells = [c.strip() for c in row_line[1:-1].split("|")]
+                    table_rows.append(cells)
+                i += 1
+
+            if table_rows:
+                num_cols = max(len(r) for r in table_rows)
+                table = doc.add_table(rows=len(table_rows), cols=num_cols)
+                table.style = "Table Grid"
+                table.alignment = WD_TABLE_ALIGNMENT.CENTER
+
+                for r_idx, row_data in enumerate(table_rows):
+                    for c_idx, cell_text in enumerate(row_data):
+                        if c_idx < num_cols:
+                            cell = table.rows[r_idx].cells[c_idx]
+                            cell.text = ""
+                            para = cell.paragraphs[0]
+                            run = para.add_run(cell_text)
+                            if r_idx == 0:
+                                set_font(run, size=10, bold=True, color=(255, 255, 255))
+                                # 表头背景色
+                                shading = OxmlElement("w:shd")
+                                shading.set(qn("w:fill"), "4472C4")
+                                shading.set(qn("w:val"), "clear")
+                                cell._tc.get_or_add_tcPr().append(shading)
+                            else:
+                                set_font(run, size=10)
+                                if r_idx % 2 == 0:
+                                    shading = OxmlElement("w:shd")
+                                    shading.set(qn("w:fill"), "F2F6FC")
+                                    shading.set(qn("w:val"), "clear")
+                                    cell._tc.get_or_add_tcPr().append(shading)
+                doc.add_paragraph()  # 表格后空行
+            continue
+
+        # ── 列表项 ──
+        elif re.match(r'^[\s]*[\-\*\d+\.]\s', stripped):
+            text = re.sub(r'^[\s]*[\-\*\d+\.]\s+', '', stripped)
+            para = doc.add_paragraph()
+            para.paragraph_format.left_indent = Cm(1.0)
+            para.paragraph_format.space_after = Pt(3)
+            # 解析 inline markdown
+            _add_inline_markdown(para, text)
+            i += 1
+            continue
+
+        # ── 引用块 ──
+        elif stripped.startswith("> "):
+            text = stripped[2:]
+            para = doc.add_paragraph()
+            para.paragraph_format.left_indent = Cm(1.0)
+            para.paragraph_format.space_after = Pt(4)
+            run = para.add_run(text)
+            set_font(run, size=10, color=(100, 100, 100))
+            i += 1
+            continue
+
+        # ── 普通段落 (支持 inline 粗体/斜体/代码) ──
+        else:
+            para = doc.add_paragraph()
+            para.paragraph_format.space_after = Pt(6)
+            _add_inline_markdown(para, stripped)
+            i += 1
+
+    # ── 页脚: 添加页码 ──
+    for section in doc.sections:
+        footer = section.footer
+        footer.is_linked_to_previous = False
+        para = footer.paragraphs[0] if footer.paragraphs else footer.add_paragraph()
+        para.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
+        run = para.add_run("— ")
+        set_font(run, size=9, color=(150, 150, 150))
+        # 页码字段
+        fld_char_begin = OxmlElement("w:fldChar")
+        fld_char_begin.set(qn("w:fldCharType"), "begin")
+        run._r.append(fld_char_begin)
+        instr_text = OxmlElement("w:instrText")
+        instr_text.set(qn("xml:space"), "preserve")
+        instr_text.text = "PAGE"
+        run._r.append(instr_text)
+        fld_char_end = OxmlElement("w:fldChar")
+        fld_char_end.set(qn("w:fldCharType"), "end")
+        run._r.append(fld_char_end)
+        run2 = para.add_run(" —")
+        set_font(run2, size=9, color=(150, 150, 150))
+
+    # ── 保存到内存 ──
+    import io
+    buf = io.BytesIO()
+    doc.save(buf)
+    buf.seek(0)
+    return buf.read()
+
+
+def _add_inline_markdown(para, text: str):
+    """解析 inline markdown (粗体/斜体/代码) 并添加到段落."""
+    import re
+    from docx.shared import Pt
+
+    # 匹配: **粗体**, *斜体*, `代码`
+    pattern = re.compile(
+        r'(\*\*(.+?)\*\*)|'       # **粗体**
+        r'(\*(.+?)\*)|'           # *斜体*
+        r'(`(.+?)`)'              # `代码`
+    )
+
+    last_end = 0
+    for match in pattern.finditer(text):
+        # 前面的普通文本
+        prefix = text[last_end:match.start()]
+        if prefix:
+            run = para.add_run(prefix)
+            run.font.name = "Calibri"
+            run.font.size = Pt(11)
+
+        if match.group(1):  # 粗体
+            run = para.add_run(match.group(2))
+            run.font.name = "Calibri"
+            run.font.size = Pt(11)
+            run.bold = True
+        elif match.group(3):  # 斜体
+            run = para.add_run(match.group(4))
+            run.font.name = "Calibri"
+            run.font.size = Pt(11)
+            run.italic = True
+        elif match.group(5):  # 代码
+            run = para.add_run(match.group(6))
+            run.font.name = "Consolas"
+            run.font.size = Pt(9.5)
+
+        last_end = match.end()
+
+    # 剩余文本
+    suffix = text[last_end:]
+    if suffix:
+        run = para.add_run(suffix)
+        run.font.name = "Calibri"
+        run.font.size = Pt(11)
+
+
+# ── Chat Stream 路由 ──────────────────────────────────────────
 
 @router.get("/chat/{chat_id}/stream")
 async def stream_chat(chat_id: str):

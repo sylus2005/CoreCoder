@@ -35,3 +35,4 @@ class ChatResponse(BaseModel):
     """对话启动响应."""
     chat_id: str
     status: str
+    session_id: str = ""  # 会话 ID，前端保存后可用于多轮对话

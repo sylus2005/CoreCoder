@@ -1,14 +1,18 @@
-import React, { useEffect, useRef } from 'react';
-import { Card, Typography, Tag, Spin, Badge, Space, Progress, Steps } from 'antd';
+import React, { useEffect, useRef, useState } from 'react';
+import { Card, Typography, Tag, Spin, Space, Button, Modal } from 'antd';
 import {
   CheckCircleOutlined,
   LoadingOutlined,
   BugOutlined,
-  CodeOutlined,
   SearchOutlined,
   FileTextOutlined,
   RobotOutlined,
+  EyeOutlined,
+  FileMarkdownOutlined,
+  MessageOutlined,
 } from '@ant-design/icons';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 const { Text, Paragraph } = Typography;
 
@@ -32,8 +36,15 @@ const SEVERITY_COLORS = {
   INFORMATIONAL: 'default',
 };
 
-export default function AuditLog({ logs, phaseInfo, findings, auditing, chatMode, chatContent, toolCalls }) {
+const API_BASE = 'http://localhost:8000';
+
+export default function AuditLog({
+  logs, phaseInfo, findings, auditing, chatMode,
+  chatContent, toolCalls, chatDone, auditId,
+  conversationTopic, lastUserMessage,
+}) {
   const logEndRef = useRef(null);
+  const [previewVisible, setPreviewVisible] = useState(false);
 
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -49,48 +60,18 @@ export default function AuditLog({ logs, phaseInfo, findings, auditing, chatMode
     return acc;
   }, {});
 
+  const handleDownloadMarkdown = () => {
+    const blob = new Blob([chatContent], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `SECURITY_AUDIT_REPORT_${new Date().toISOString().slice(0, 10)}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div style={{ maxWidth: 960, margin: '0 auto' }}>
-      {/* ── AI Agent Response Card (chat mode) ── */}
-      {chatMode && chatContent && (
-        <Card
-          className="content-card"
-          style={{ marginBottom: 20 }}
-          title={
-            <Space>
-              <div style={{
-                width: 28, height: 28, borderRadius: 7,
-                background: 'linear-gradient(135deg, #6366f1, #7c3aed)',
-                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-              }}>
-                <RobotOutlined style={{ color: '#fff', fontSize: 14 }} />
-              </div>
-              <span style={{ fontSize: 15, fontWeight: 600, color: '#334155' }}>AI Agent Response</span>
-              {auditing && <Spin size="small" />}
-            </Space>
-          }
-          bodyStyle={{ padding: '16px 20px' }}
-        >
-          <div style={{
-            background: 'linear-gradient(135deg, #f8f9ff 0%, #faf5ff 100%)',
-            borderRadius: 10,
-            padding: '16px 20px',
-            border: '1px solid #e0e7ff',
-            maxHeight: 500,
-            overflow: 'auto',
-            fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
-            fontSize: 14,
-            lineHeight: 1.8,
-            color: '#334155',
-            whiteSpace: 'pre-wrap',
-            wordBreak: 'break-word',
-          }}>
-            {chatContent}
-            {auditing && <span className="blinking-cursor">▌</span>}
-          </div>
-        </Card>
-      )}
-
       {/* ── Phase Progress (Pipeline mode only) ── */}
       {!chatMode && (
         <Card
@@ -192,71 +173,29 @@ export default function AuditLog({ logs, phaseInfo, findings, auditing, chatMode
         </Card>
       )}
 
-      {/* ── Tool Calls (Chat mode) ── */}
-      {chatMode && toolCalls && toolCalls.length > 0 && (
+      {/* ── ★ 对话主题 (显示在实时日志上方) ── */}
+      {chatMode && conversationTopic && (
         <Card
           className="content-card"
-          style={{ marginBottom: 20 }}
-          size="small"
-          title={
-            <Space size={6}>
-              <CodeOutlined style={{ color: '#f59e0b', fontSize: 14 }} />
-              <span style={{ fontSize: 13, fontWeight: 600, color: '#334155' }}>
-                Tools Called ({toolCalls.length})
-              </span>
-              {auditing && <Spin size="small" />}
-            </Space>
-          }
+          style={{ marginBottom: 12 }}
+          bodyStyle={{ padding: '12px 20px' }}
         >
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {toolCalls.map((tc, idx) => (
-              <div
-                key={tc.id || idx}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 12,
-                  padding: '8px 12px',
-                  background: '#fffbeb',
-                  borderRadius: 8,
-                  border: '1px solid #fde68a',
-                }}
-              >
-                <div style={{
-                  width: 28, height: 28, borderRadius: 6,
-                  background: 'linear-gradient(135deg, #f59e0b, #d97706)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  flexShrink: 0,
-                }}>
-                  <span style={{ color: '#fff', fontSize: 13, fontWeight: 700 }}>{idx + 1}</span>
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <Text strong style={{ fontSize: 13, color: '#92400e', fontFamily: "'JetBrains Mono', monospace" }}>
-                    {tc.tool}
-                  </Text>
-                  {tc.arguments && Object.keys(tc.arguments).length > 0 && (
-                    <div style={{ fontSize: 11, color: '#a16207', marginTop: 2, fontFamily: "'JetBrains Mono', monospace" }}>
-                      {Object.entries(tc.arguments).map(([k, v]) => (
-                        <span key={k} style={{ marginRight: 8 }}>
-                          <span style={{ opacity: 0.6 }}>{k}=</span>
-                          <span>{String(v).substring(0, 80)}</span>
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-                {tc.time && (
-                  <Text style={{ fontSize: 10, color: '#a16207', flexShrink: 0 }}>{tc.time}</Text>
-                )}
-              </div>
-            ))}
-          </div>
+          <Space size={8}>
+            <MessageOutlined style={{ color: '#6366f1', fontSize: 15 }} />
+            <Text style={{ fontSize: 13, color: '#94a3b8', fontWeight: 400 }}>当前对话主题：</Text>
+            <Text style={{ fontSize: 14, fontWeight: 600, color: '#334155' }}>
+              {conversationTopic}
+            </Text>
+            {auditing && <Tag color="processing" style={{ borderRadius: 12, fontSize: 11 }}>进行中</Tag>}
+            {chatDone && <Tag color="success" style={{ borderRadius: 12, fontSize: 11 }}>已完成</Tag>}
+          </Space>
         </Card>
       )}
 
       {/* ── Terminal-Style Log ── */}
       <Card
         className="content-card"
+        style={{ marginBottom: 20 }}
         title={
           <Space>
             <div style={{
@@ -275,7 +214,7 @@ export default function AuditLog({ logs, phaseInfo, findings, auditing, chatMode
           background: '#1e293b',
           borderRadius: '0 0 12px 12px',
           padding: '16px 20px',
-          maxHeight: chatMode ? 360 : 440,
+          maxHeight: chatMode ? 300 : 440,
           overflow: 'auto',
           fontFamily: "'JetBrains Mono', 'Fira Code', 'Consolas', monospace",
           fontSize: 12.5,
@@ -330,18 +269,103 @@ export default function AuditLog({ logs, phaseInfo, findings, auditing, chatMode
               </div>
             ))
           )}
-          {auditing && !chatMode && (
+          {auditing && (
             <div style={{ color: '#475569', marginTop: 4 }}>
               <Spin size="small" />{' '}
-              {phaseOrder.find((p) => phaseInfo[p] === 'started')
-                ? PHASE_LABELS[phaseOrder.find((p) => phaseInfo[p] === 'started')] || 'Processing...'
-                : 'Initializing scan...'}
+              {chatMode
+                ? 'AI Agent analyzing...'
+                : phaseOrder.find((p) => phaseInfo[p] === 'started')
+                  ? PHASE_LABELS[phaseOrder.find((p) => phaseInfo[p] === 'started')] || 'Processing...'
+                  : 'Initializing scan...'}
               <span className="blinking-cursor">▌</span>
             </div>
           )}
           <div ref={logEndRef} />
         </div>
       </Card>
+
+      {/* ── AI Agent Response Card (chat mode) — only shown when done ── */}
+      {chatMode && chatDone && chatContent && (
+        <Card
+          className="content-card"
+          style={{ marginBottom: 20 }}
+          title={
+            <Space>
+              <div style={{
+                width: 28, height: 28, borderRadius: 7,
+                background: 'linear-gradient(135deg, #6366f1, #7c3aed)',
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                <RobotOutlined style={{ color: '#fff', fontSize: 14 }} />
+              </div>
+              <span style={{ fontSize: 15, fontWeight: 600, color: '#334155' }}>AI Agent Response</span>
+              {auditing && <Spin size="small" />}
+            </Space>
+          }
+          extra={
+            chatDone && (
+              <Space size={8}>
+                <Button
+                  size="small"
+                  icon={<FileMarkdownOutlined />}
+                  onClick={handleDownloadMarkdown}
+                  style={{
+                    borderRadius: 6,
+                    fontWeight: 500,
+                    borderColor: '#94a3b8',
+                    color: '#64748b',
+                  }}
+                >
+                  下载 .md
+                </Button>
+              </Space>
+            )
+          }
+          bodyStyle={{ padding: '16px 20px' }}
+        >
+          <div className="markdown-content" style={{
+            maxHeight: 600,
+            overflow: 'auto',
+          }}>
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+              {chatContent}
+            </ReactMarkdown>
+            {auditing && <span className="blinking-cursor">▌</span>}
+          </div>
+        </Card>
+      )}
+
+      {/* ── Markdown Preview Modal ── */}
+      <Modal
+        title={
+          <Space>
+            <EyeOutlined style={{ color: '#6366f1' }} />
+            <span style={{ fontWeight: 600 }}>Markdown 源码预览</span>
+            <Tag color="purple" style={{ fontSize: 11, borderRadius: 8 }}>.md</Tag>
+          </Space>
+        }
+        open={previewVisible}
+        onCancel={() => setPreviewVisible(false)}
+        width={900}
+        footer={
+          <Space>
+            <Button icon={<FileMarkdownOutlined />} onClick={handleDownloadMarkdown}>
+              下载 Markdown
+            </Button>
+          </Space>
+        }
+        style={{ top: 20 }}
+      >
+        <div className="markdown-content" style={{
+          maxHeight: '70vh',
+          overflow: 'auto',
+          padding: '8px 0',
+        }}>
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+            {chatContent}
+          </ReactMarkdown>
+        </div>
+      </Modal>
 
       <style>{`
         @keyframes blink {
@@ -351,6 +375,10 @@ export default function AuditLog({ logs, phaseInfo, findings, auditing, chatMode
         .blinking-cursor {
           animation: blink 1s infinite;
           color: #6366f1;
+        }
+        @keyframes bounce {
+          0%, 100% { transform: translateY(0); }
+          50% { transform: translateY(-4px); }
         }
       `}</style>
     </div>

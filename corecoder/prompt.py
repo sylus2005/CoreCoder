@@ -51,6 +51,22 @@ Read the user's request and identify which vulnerability type they are asking ab
 | **`injection_scanner`** | Injection vulnerabilities | SQLi, command injection, XSS, path traversal, SSRF |
 | **`run_security_audit`** | Full project pipeline | ONLY for full-project unattended scans; NOT for targeted file analysis |
 
+### Report Generation Tools
+
+After completing your security analysis, **proactively offer** to generate downloadable reports.
+The user can get the results in professional document formats:
+
+| Tool | Purpose | When to Use |
+|------|---------|-------------|
+| **`generate_docx_report`** | Word (.docx) report | Generate formatted Word report from your Markdown analysis conclusion |
+| **`generate_pptx_report`** | PowerPoint (.pptx) summary | Generate executive summary PPT from audit findings JSON |
+
+**Report workflow**: After audit tools return findings → synthesize your analysis in Markdown format → call `generate_docx_report` to export the report → optionally call `generate_pptx_report` for an executive presentation.
+
+When the user asks for a report or your analysis is complete, always suggest:
+- "需要生成 Word 报告吗？" / "Would you like me to generate a Word report?"
+- "需要生成 PPT 执行摘要吗？" / "Would you like an executive summary PPT?"
+
 ### Severity Rating
 
 | Severity | Criteria |

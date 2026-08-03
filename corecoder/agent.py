@@ -11,12 +11,34 @@ which means it's done working and ready to report back.
 
 import concurrent.futures
 import inspect
+import atexit
 from .llm import LLM
 from .tools import ALL_TOOLS
 from .tools.base import Tool
 from .tools.agent import AgentTool
 from .prompt import system_prompt
 from .context import ContextManager
+
+# Module-level singleton thread pool — avoids thread leaks from creating
+# a new ThreadPoolExecutor for every parallel tool execution.
+_pool: concurrent.futures.ThreadPoolExecutor | None = None
+
+
+def _get_pool() -> concurrent.futures.ThreadPoolExecutor:
+    global _pool
+    if _pool is None:
+        _pool = concurrent.futures.ThreadPoolExecutor(max_workers=8)
+    return _pool
+
+
+def _shutdown_pool():
+    global _pool
+    if _pool is not None:
+        _pool.shutdown(wait=False)
+        _pool = None
+
+
+atexit.register(_shutdown_pool)
 
 
 class Agent:
@@ -120,19 +142,14 @@ class Agent:
             return f"Error executing {tc.name}: {e}"
 
     def _exec_tools_parallel(self, tool_calls, on_tool=None) -> list[str]:
-        """Run multiple tool calls concurrently using threads.
-
-        This is inspired by Claude Code's StreamingToolExecutor which starts
-        executing tools while the model is still generating.  We simplify to:
-        when the model returns N tool calls at once, run them in parallel.
-        """
+        """Run multiple tool calls concurrently using the singleton thread pool."""
         for tc in tool_calls:
             if on_tool:
                 on_tool(tc.name, tc.arguments)
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
-            futures = [pool.submit(self._exec_tool, tc) for tc in tool_calls]
-            return [f.result() for f in futures]
+        pool = _get_pool()
+        futures = [pool.submit(self._exec_tool, tc) for tc in tool_calls]
+        return [f.result() for f in futures]
 
     def _answer_pending_tool_calls(self, tool_calls):
         """Backfill a tool reply for every call that didn't get one.
