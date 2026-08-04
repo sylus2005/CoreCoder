@@ -37,7 +37,7 @@ const SEVERITY_COLORS = {
   INFORMATIONAL: 'default',
 };
 
-const API_BASE = 'http://49.233.195.118:8000';
+const API_BASE = 'http://49.233.195.118';
 
 function formatTime(ts) {
   if (!ts) return '';

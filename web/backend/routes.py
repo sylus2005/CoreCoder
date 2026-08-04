@@ -21,7 +21,7 @@ from pathlib import Path
 from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, FileResponse
 
 from models import AuditRequest, AuditResponse, UploadResponse, ChatRequest, ChatResponse
 
@@ -711,6 +711,31 @@ async def _run_chat(chat_id: str, message: str, target: str = "", session_id: st
                     }),
                     main_loop,
                 )
+                # ★ 报告生成检测: 推送 report_ready 事件通知前端自动下载
+                if tool_name == "generate_docx_report":
+                    out_path = tool_args.get("output_path", "")
+                    filename = Path(out_path).name if out_path else "SECURITY_REPORT.docx"
+                    asyncio.run_coroutine_threadsafe(
+                        q.put({
+                            "type": "report_ready",
+                            "format": "docx",
+                            "filename": filename,
+                            "url": f"/api/reports/download/{filename}",
+                        }),
+                        main_loop,
+                    )
+                elif tool_name == "generate_pptx_report":
+                    out_path = tool_args.get("output_path", "")
+                    filename = Path(out_path).name if out_path else "SECURITY_EXECUTIVE_SUMMARY.pptx"
+                    asyncio.run_coroutine_threadsafe(
+                        q.put({
+                            "type": "report_ready",
+                            "format": "pptx",
+                            "filename": filename,
+                            "url": f"/api/reports/download/{filename}",
+                        }),
+                        main_loop,
+                    )
 
             try:
                 result = agent.chat(full_message, on_token=on_token, on_tool=on_tool)
@@ -758,6 +783,65 @@ async def _run_chat(chat_id: str, message: str, target: str = "", session_id: st
         chat["status"] = "completed"
 
 
+def _find_and_load_dotenv():
+    """查找并加载 .env 文件。
+
+    优先使用 python-dotenv 库；如果未安装，回退到手动解析。
+    从 CWD 向上遍历目录树直到找到 .env 文件或到达家目录。
+    """
+    import os
+    from pathlib import Path as _Path
+
+    # 1) 查找 .env 文件
+    env_path = _Path(".env")
+    if not env_path.exists():
+        cur = _Path.cwd()
+        home = _Path.home()
+        while cur != home and cur != cur.parent:
+            candidate = cur / ".env"
+            if candidate.exists():
+                env_path = candidate
+                break
+            cur = cur.parent
+
+    if not env_path.exists():
+        return  # 没找到 .env 文件
+
+    # 2) 尝试用 python-dotenv 加载
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(str(env_path), override=False)
+        return
+    except ImportError:
+        pass
+
+    # 3) ★ 兜底: 手动解析 .env 文件（不需要 python-dotenv）
+    try:
+        with open(env_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                # 跳过空行和注释
+                if not line or line.startswith("#"):
+                    continue
+                # 跳过 export 前缀
+                if line.startswith("export "):
+                    line = line[7:]
+                # 解析 KEY=VALUE (支持引号)
+                if "=" not in line:
+                    continue
+                key, _, value = line.partition("=")
+                key = key.strip()
+                value = value.strip()
+                # 移除引号
+                if len(value) >= 2:
+                    if (value.startswith('"') and value.endswith('"')) or \
+                       (value.startswith("'") and value.endswith("'")):
+                        value = value[1:-1]
+                os.environ.setdefault(key, value)
+    except Exception:
+        pass  # 手动解析失败也不阻塞启动
+
+
 def _load_llm_config() -> dict:
     """从环境变量加载 LLM 配置（含 .env 文件）。
 
@@ -766,23 +850,7 @@ def _load_llm_config() -> dict:
     """
     import os
 
-    # ★ 关键: 加载 .env 文件 (终端 CLI 也这样做)
-    try:
-        from dotenv import load_dotenv
-        from pathlib import Path as _Path
-        env_path = _Path(".env")
-        if not env_path.exists():
-            cur = _Path.cwd()
-            home = _Path.home()
-            while cur != home and cur != cur.parent:
-                candidate = cur / ".env"
-                if candidate.exists():
-                    env_path = candidate
-                    break
-                cur = cur.parent
-        load_dotenv(env_path, override=False)
-    except ImportError:
-        pass
+    _find_and_load_dotenv()
 
     return {
         "model": os.getenv("CORECODER_MODEL", "gpt-5.5"),
@@ -1235,6 +1303,7 @@ async def stream_chat(chat_id: str):
     - event: token     LLM 生成的文本内容
     - event: done      对话完成
     - event: chat_error 对话异常
+    - event: report_ready  报告文件可下载
     """
     chat = _chats.get(chat_id)
     if not chat:
@@ -1261,5 +1330,41 @@ async def stream_chat(chat_id: str):
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
             "X-Accel-Buffering": "no",
+        },
+    )
+
+
+# ── 报告文件下载 ─────────────────────────────────────────────
+
+@router.get("/reports/download/{filename}")
+async def download_report(filename: str):
+    """下载生成的报告文件（Word .docx / PowerPoint .pptx）。
+
+    报告由 generate_docx_report / generate_pptx_report 工具生成，
+    保存在 web/backend/reports/ 目录下。
+    """
+    reports_dir = Path(__file__).resolve().parent / "reports"
+    file_path = (reports_dir / filename).resolve()
+
+    # 安全检查：确保文件在 reports 目录内（防路径穿越）
+    if not str(file_path).startswith(str(reports_dir.resolve())):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail=f"Report not found: {filename}")
+
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    media_types = {
+        "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    }
+    media_type = media_types.get(ext, "application/octet-stream")
+
+    return FileResponse(
+        file_path,
+        media_type=media_type,
+        filename=filename,
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
         },
     )

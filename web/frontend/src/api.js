@@ -3,7 +3,7 @@
  * 封装与后端 FastAPI 的所有通信
  */
 
-const API_BASE = 'http://49.233.195.118:8000';
+const API_BASE = 'http://49.233.195.118';
 
 /**
  * 启动安全审计 (正则 Pipeline - 快速扫描)
@@ -145,6 +145,11 @@ export function connectChatStream(chatId, callbacks = {}) {
     const data = JSON.parse(e.data);
     callbacks.onDone?.(data);
     es.close();
+  });
+
+  es.addEventListener('report_ready', (e) => {
+    const data = JSON.parse(e.data);
+    callbacks.onReportReady?.(data);
   });
 
   es.addEventListener('chat_error', (e) => {
