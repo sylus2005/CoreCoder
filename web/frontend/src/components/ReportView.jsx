@@ -246,8 +246,7 @@ export default function ReportView({ summary, findings, reportMd, phaseInfo }) {
               </div>
               <Divider style={{ margin: '10px 0', borderColor: '#f1f5f9' }} />
               {[
-                { label: 'CRITICAL', color: '#ef4444', count: summary?.by_severity?.CRITICAL || 0 },
-                { label: 'HIGH', color: '#f97316', count: summary?.by_severity?.HIGH || 0 },
+                { label: 'HIGH/CRITICAL', color: '#ef4444', count: (summary?.by_severity?.CRITICAL || 0) + (summary?.by_severity?.HIGH || 0) },
                 { label: 'MEDIUM', color: '#eab308', count: summary?.by_severity?.MEDIUM || 0 },
                 { label: 'LOW', color: '#22c55e', count: summary?.by_severity?.LOW || 0 },
                 { label: 'INFO', color: '#6366f1', count: summary?.by_severity?.INFORMATIONAL || 0 },

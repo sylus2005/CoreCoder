@@ -14,6 +14,7 @@ import AuditLog from './components/AuditLog';
 import ReportView from './components/ReportView';
 import HistoryPanel from './components/HistoryPanel';
 import { startAudit, connectAuditStream, startChat, connectChatStream } from './api';
+import LandingPage from './components/LandingPage';
 
 const { Header, Sider, Content } = Layout;
 const { Text } = Typography;
@@ -427,8 +428,12 @@ export default function App() {
   // ★ 判断是否有 chat 内容要展示（turns 有内容 或 正在流式接收）
   const hasChatContent = turns.length > 0 || currentResponse;
 
+  // ★ 开场页门控 — LandingPage 自身管理显隐，每次挂载自动显示
+  // 始终渲染主应用 + LandingPage（叠加在上面），不依赖父组件 state
   return (
-    <ConfigProvider
+    <>
+      <LandingPage />
+      <ConfigProvider
       theme={{
         algorithm: theme.defaultAlgorithm,
         token: {
@@ -685,5 +690,6 @@ export default function App() {
         </Layout>
       </Layout>
     </ConfigProvider>
+    </>
   );
 }

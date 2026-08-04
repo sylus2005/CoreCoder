@@ -1,0 +1,862 @@
+/* ================================================================
+   CoreCoder Security Agent — Landing Page v2
+   全屏滚动叙事封面 · 紫色主题 · 深色科技风
+   ================================================================ */
+
+/* ── 基础变量 ──────────────────────────────────────────────── */
+
+:root {
+  --landing-bg: #0a0a0f;
+  --landing-text: #e0e7ff;
+  --landing-text-dim: #94a3b8;
+  --landing-accent: #6366f1;
+  --landing-accent-2: #7c3aed;
+  --landing-card-bg: rgba(15, 15, 30, 0.6);
+  --landing-card-border: rgba(99, 102, 241, 0.15);
+}
+
+/* ── 滚动容器 ──────────────────────────────────────────────── */
+
+.landing-container {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: var(--landing-bg);
+  overflow-y: auto;
+  overflow-x: hidden;
+  scroll-behavior: smooth;
+  scroll-snap-type: y mandatory;
+  cursor: default;
+  user-select: none;
+  font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+}
+
+.landing-container.exiting {
+  animation: landingExit 0.8s ease-in forwards;
+  pointer-events: none;
+}
+
+/* ── 固定背景层 ────────────────────────────────────────────── */
+
+.landing-bg-canvas {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.landing-bg-particle {
+  position: fixed;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.landing-container.exiting .landing-bg-canvas,
+.landing-container.exiting .landing-bg-particle {
+  opacity: 0;
+  transition: opacity 0.4s ease-in;
+}
+
+/* 扫描线 */
+.scanlines-fixed {
+  position: fixed;
+  inset: 0;
+  z-index: 3;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(99, 102, 241, 0.025) 2px,
+    rgba(99, 102, 241, 0.025) 4px
+  );
+  animation: scanlineMove 8s linear infinite;
+  pointer-events: none;
+}
+
+/* 暗角 */
+.landing-vignette-fixed {
+  position: fixed;
+  inset: 0;
+  z-index: 4;
+  background: radial-gradient(ellipse at center, transparent 50%, rgba(0, 0, 0, 0.55) 100%);
+  pointer-events: none;
+}
+
+/* 浮游光球 */
+.particle-orbs-fixed {
+  position: fixed;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+}
+
+.orb-fixed {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(65px);
+  opacity: 0.4;
+}
+
+.orb-1-fixed {
+  width: 340px; height: 340px;
+  background: radial-gradient(circle, rgba(99, 102, 241, 0.5), transparent);
+  top: 38%; left: 38%;
+  animation: floatOrb1 12s ease-in-out infinite;
+}
+
+.orb-2-fixed {
+  width: 300px; height: 300px;
+  background: radial-gradient(circle, rgba(124, 58, 237, 0.45), transparent);
+  top: 44%; left: 56%;
+  animation: floatOrb2 15s ease-in-out infinite;
+}
+
+.orb-3-fixed {
+  width: 280px; height: 280px;
+  background: radial-gradient(circle, rgba(129, 140, 248, 0.4), transparent);
+  top: 50%; left: 42%;
+  animation: floatOrb3 18s ease-in-out infinite;
+}
+
+.orb-4-fixed {
+  width: 250px; height: 250px;
+  background: radial-gradient(circle, rgba(99, 102, 241, 0.35), transparent);
+  top: 42%; left: 48%;
+  animation: floatOrb4 14s ease-in-out infinite;
+}
+
+/* ── 滚动内容包装 ──────────────────────────────────────────── */
+
+.landing-scroll-content {
+  position: relative;
+  z-index: 10;
+}
+
+/* ── 通用 Section ──────────────────────────────────────────── */
+
+.landing-section {
+  scroll-snap-align: start;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+.section-inner {
+  width: 90%;
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 80px 0;
+}
+
+.section-title {
+  font-size: clamp(1.6rem, 3.5vw, 2.6rem);
+  font-weight: 800;
+  color: #f0f4ff;
+  text-align: center;
+  margin: 0 0 12px;
+  letter-spacing: 1px;
+}
+
+.text-gradient {
+  background: linear-gradient(135deg, #818cf8, #c4b5fd);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.section-subtitle {
+  font-size: clamp(0.85rem, 1.4vw, 1.05rem);
+  color: #94a3b8;
+  text-align: center;
+  margin: 0 auto 48px;
+  max-width: 600px;
+  line-height: 1.6;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* ── Hero Section ───────────────────────────────────────────── */
+
+.hero-section {
+  min-height: 100vh;
+}
+
+.landing-hero {
+  text-align: center;
+  max-width: 750px;
+  width: 90%;
+}
+
+/* Badge */
+.landing-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 18px;
+  margin-bottom: 28px;
+  border: 1px solid rgba(99, 102, 241, 0.35);
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 3px;
+  color: #c7d2fe;
+  background: rgba(99, 102, 241, 0.12);
+  text-transform: uppercase;
+}
+
+.landing-badge-icon {
+  font-size: 14px;
+}
+
+/* Glitch 标题 */
+.glitch-title {
+  position: relative;
+  font-size: clamp(1.8rem, 5vw, 3.6rem);
+  font-weight: 800;
+  color: #f0f4ff;
+  letter-spacing: 3px;
+  line-height: 1.2;
+  margin: 0 0 20px;
+  text-shadow:
+    0 0 10px rgba(99, 102, 241, 0.6),
+    0 0 30px rgba(99, 102, 241, 0.35),
+    0 0 60px rgba(124, 58, 237, 0.25);
+}
+
+.glitch-title::before,
+.glitch-title::after {
+  content: attr(data-text);
+  position: absolute;
+  left: 0; top: 0;
+  width: 100%; height: 100%;
+  opacity: 0;
+}
+
+.glitch-title::before {
+  color: #06b6d4;
+  z-index: -1;
+  animation: glitchCyan 3s infinite;
+}
+
+.glitch-title::after {
+  color: #d946ef;
+  z-index: -2;
+  animation: glitchMagenta 3s infinite;
+}
+
+/* 打字机副标题 */
+.typewriter-subtitle {
+  display: inline-block;
+  overflow: hidden;
+  white-space: nowrap;
+  border-right: 3px solid var(--landing-accent);
+  font-size: clamp(0.8rem, 1.5vw, 1rem);
+  font-weight: 500;
+  color: #cbd5e1;
+  letter-spacing: 1px;
+  margin: 0 auto 36px;
+  animation: typewriter 3.5s steps(40) 0.5s 1 normal both,
+             blinkCaret 0.75s step-end infinite;
+}
+
+/* ── Enter 按钮 ─────────────────────────────────────────────── */
+
+.enter-button-wrap {
+  margin-bottom: 16px;
+}
+
+.enter-button {
+  position: relative;
+  padding: 16px 52px;
+  font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: 5px;
+  color: #e0e7ff;
+  background: linear-gradient(135deg, #6366f1 0%, #7c3aed 100%);
+  border: 2px solid rgba(99, 102, 241, 0.5);
+  border-radius: 3px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  animation: pulseGlow 2.5s ease-in-out infinite;
+  outline: none;
+  text-transform: uppercase;
+}
+
+.enter-button:hover:not(:disabled) {
+  background: linear-gradient(135deg, #818cf8 0%, #8b5cf6 100%);
+  box-shadow:
+    0 0 30px rgba(99, 102, 241, 0.5),
+    0 0 60px rgba(124, 58, 237, 0.3),
+    0 0 90px rgba(99, 102, 241, 0.15);
+  transform: scale(1.04);
+  border-color: rgba(129, 140, 248, 0.8);
+}
+
+.enter-button:active:not(:disabled) {
+  transform: scale(0.98);
+  transition: transform 0.1s ease;
+}
+
+.enter-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* 提示文字 */
+.hint-text {
+  font-size: 0.75rem;
+  color: rgba(203, 213, 225, 0.55);
+  letter-spacing: 1px;
+  margin: 0;
+}
+
+.hint-key {
+  display: inline-block;
+  padding: 2px 8px;
+  margin: 0 3px;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 3px;
+  font-size: 0.7rem;
+  color: #94a3b8;
+  background: rgba(148, 163, 184, 0.06);
+}
+
+/* ── 下滑提示 ──────────────────────────────────────────────── */
+
+.scroll-indicator {
+  position: fixed;
+  bottom: 32px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  transition: opacity 0.4s ease, transform 0.4s ease;
+}
+
+.scroll-indicator.hidden {
+  opacity: 0;
+  transform: translateX(-50%) translateY(10px);
+  pointer-events: none;
+}
+
+.scroll-text {
+  font-size: 10px;
+  color: rgba(148, 163, 184, 0.6);
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.scroll-arrow {
+  width: 24px;
+  height: 24px;
+  border-right: 2px solid rgba(99, 102, 241, 0.5);
+  border-bottom: 2px solid rgba(99, 102, 241, 0.5);
+  transform: rotate(45deg);
+  animation: scrollBounce 2s ease-in-out infinite;
+}
+
+@keyframes scrollBounce {
+  0%, 100% { transform: rotate(45deg) translateY(0); }
+  50%      { transform: rotate(45deg) translateY(6px); }
+}
+
+/* ── Agent 卡片 ─────────────────────────────────────────────── */
+
+.agent-cards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
+}
+
+.agent-card {
+  background: var(--landing-card-bg);
+  border: 1px solid var(--landing-card-border);
+  border-radius: 16px;
+  padding: 32px 24px;
+  backdrop-filter: blur(12px);
+  transition: transform 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.agent-card:hover {
+  transform: translateY(-6px);
+  border-color: rgba(99, 102, 241, 0.35);
+  box-shadow: 0 12px 40px rgba(99, 102, 241, 0.15);
+}
+
+.agent-card-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.agent-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  flex-shrink: 0;
+}
+
+.agent-name {
+  display: inline-block;
+  font-size: 11px;
+  color: #a78bfa;
+  background: rgba(99, 102, 241, 0.15);
+  padding: 2px 8px;
+  border-radius: 4px;
+  margin-bottom: 4px;
+  letter-spacing: 0.5px;
+}
+
+.agent-card-header h3 {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #e0e7ff;
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.agent-desc {
+  font-size: 0.82rem;
+  color: #94a3b8;
+  line-height: 1.6;
+  margin: 0 0 16px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.agent-caps {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.agent-caps li {
+  font-size: 0.7rem;
+  padding: 3px 10px;
+  border-radius: 20px;
+  background: rgba(99, 102, 241, 0.1);
+  color: #a5b4fc;
+  font-family: 'JetBrains Mono', monospace;
+  white-space: nowrap;
+}
+
+/* ── Tools Section ──────────────────────────────────────────── */
+
+.tools-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 40px;
+  align-items: start;
+}
+
+.pipeline-visual {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+}
+
+.pipeline-step {
+  background: var(--landing-card-bg);
+  border: 1px solid var(--landing-card-border);
+  border-radius: 12px;
+  padding: 18px 20px;
+  width: 100%;
+  max-width: 260px;
+  text-align: center;
+  backdrop-filter: blur(12px);
+}
+
+.step-icon {
+  font-size: 28px;
+  margin-bottom: 6px;
+}
+
+.step-label {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #e0e7ff;
+  margin-bottom: 4px;
+}
+
+.step-desc {
+  font-size: 0.72rem;
+  color: #94a3b8;
+  line-height: 1.5;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.pipeline-arrow {
+  font-size: 24px;
+  color: var(--landing-accent);
+  opacity: 0.6;
+}
+
+.tools-features {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.tool-feature {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  background: var(--landing-card-bg);
+  border: 1px solid var(--landing-card-border);
+  border-radius: 12px;
+  padding: 18px 20px;
+  backdrop-filter: blur(12px);
+  transition: border-color 0.3s ease;
+}
+
+.tool-feature:hover {
+  border-color: rgba(99, 102, 241, 0.3);
+}
+
+.tf-icon {
+  font-size: 24px;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.tool-feature strong {
+  display: block;
+  color: #e0e7ff;
+  font-size: 0.9rem;
+  margin-bottom: 4px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.tool-feature p {
+  margin: 0;
+  font-size: 0.8rem;
+  color: #94a3b8;
+  line-height: 1.55;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* ── Pains Section ──────────────────────────────────────────── */
+
+.pains-grid {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 0 16px;
+  row-gap: 32px;
+  align-items: center;
+}
+
+.pain-card {
+  border-radius: 14px;
+  padding: 24px 22px;
+  backdrop-filter: blur(12px);
+}
+
+.pain-before {
+  background: rgba(239, 68, 68, 0.06);
+  border: 1px solid rgba(239, 68, 68, 0.15);
+}
+
+.pain-after {
+  background: rgba(99, 102, 241, 0.06);
+  border: 1px solid rgba(99, 102, 241, 0.15);
+}
+
+.pain-tag {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  padding: 3px 10px;
+  border-radius: 4px;
+  margin-bottom: 12px;
+}
+
+.pain-before .pain-tag {
+  color: #f87171;
+  background: rgba(239, 68, 68, 0.12);
+}
+
+.pain-after .pain-tag {
+  color: #818cf8;
+  background: rgba(99, 102, 241, 0.15);
+}
+
+.pain-card h3 {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #e0e7ff;
+  margin: 0 0 8px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.pain-card p {
+  font-size: 0.82rem;
+  color: #94a3b8;
+  line-height: 1.55;
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.pain-arrow {
+  font-size: 24px;
+  color: var(--landing-accent);
+  font-weight: 700;
+  text-align: center;
+}
+
+/* ── Audience Section ───────────────────────────────────────── */
+
+.audience-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 20px;
+}
+
+.audience-card {
+  background: var(--landing-card-bg);
+  border: 1px solid var(--landing-card-border);
+  border-radius: 16px;
+  padding: 32px 20px;
+  text-align: center;
+  backdrop-filter: blur(12px);
+  transition: transform 0.3s ease, border-color 0.3s ease;
+}
+
+.audience-card:hover {
+  transform: translateY(-4px);
+  border-color: rgba(99, 102, 241, 0.3);
+}
+
+.audience-avatar {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.15), rgba(124, 58, 237, 0.15));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+  margin: 0 auto 14px;
+  border: 2px solid rgba(99, 102, 241, 0.2);
+}
+
+.audience-card h3 {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #e0e7ff;
+  margin: 0 0 8px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.audience-card p {
+  font-size: 0.8rem;
+  color: #94a3b8;
+  line-height: 1.5;
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* ── CTA Section ────────────────────────────────────────────── */
+
+.cta-section {
+  min-height: auto;
+  padding: 80px 0 100px;
+}
+
+.cta-section .section-inner {
+  text-align: center;
+}
+
+.cta-title {
+  font-size: clamp(1.5rem, 3vw, 2.2rem);
+  font-weight: 800;
+  color: #f0f4ff;
+  margin: 0 0 12px;
+  letter-spacing: 1px;
+}
+
+.cta-subtitle {
+  font-size: clamp(0.85rem, 1.2vw, 0.95rem);
+  color: #94a3b8;
+  margin: 0 auto 36px;
+  max-width: 500px;
+  line-height: 1.6;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.copyright {
+  font-size: 0.7rem;
+  color: rgba(148, 163, 184, 0.35);
+  margin: 32px 0 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* ── Scroll Reveal 动画 ─────────────────────────────────────── */
+
+.section-reveal {
+  opacity: 0;
+  transform: translateY(40px);
+  transition: opacity 0.8s ease-out, transform 0.8s ease-out;
+}
+
+.section-reveal.revealed {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* ── Keyframes ──────────────────────────────────────────────── */
+
+@keyframes scanlineMove {
+  0%   { transform: translateY(0); }
+  100% { transform: translateY(4px); }
+}
+
+@keyframes floatOrb1 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  25%      { transform: translate(40px, 30px) scale(1.1); }
+  50%      { transform: translate(-20px, 60px) scale(0.9); }
+  75%      { transform: translate(30px, -20px) scale(1.05); }
+}
+
+@keyframes floatOrb2 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33%      { transform: translate(-50px, -30px) scale(1.15); }
+  66%      { transform: translate(20px, -50px) scale(0.85); }
+}
+
+@keyframes floatOrb3 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50%      { transform: translate(40px, -20px) scale(1.2); }
+}
+
+@keyframes floatOrb4 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50%      { transform: translate(-30px, 25px) scale(1.1); }
+}
+
+@keyframes glitchCyan {
+  0%, 90%, 100% { transform: none; opacity: 0; }
+  91%, 93%      { transform: translate(3px, -2px); opacity: 0.7; clip-path: inset(20% 0 60% 0); }
+}
+
+@keyframes glitchMagenta {
+  0%, 90%, 100% { transform: none; opacity: 0; }
+  92%, 94%      { transform: translate(-3px, 2px); opacity: 0.7; clip-path: inset(50% 0 10% 0); }
+}
+
+@keyframes typewriter {
+  from { max-width: 0; }
+  to   { max-width: 100%; }
+}
+
+@keyframes blinkCaret {
+  0%, 100% { border-color: var(--landing-accent); }
+  50%      { border-color: transparent; }
+}
+
+@keyframes pulseGlow {
+  0%, 100% { box-shadow: 0 0 15px rgba(99, 102, 241, 0.3); }
+  50%      { box-shadow: 0 0 35px rgba(99, 102, 241, 0.5), 0 0 70px rgba(124, 58, 237, 0.25); }
+}
+
+@keyframes landingExit {
+  0%   { opacity: 1; transform: scale(1); filter: blur(0); }
+  40%  { opacity: 0.8; transform: scale(1.02); filter: blur(1px); }
+  100% { opacity: 0; transform: scale(1.1); filter: blur(4px); }
+}
+
+/* ── 响应式 ─────────────────────────────────────────────────── */
+
+@media (max-width: 1024px) {
+  .agent-cards {
+    grid-template-columns: 1fr;
+    max-width: 460px;
+    margin: 0 auto;
+  }
+  .tools-grid {
+    grid-template-columns: 1fr;
+  }
+  .pipeline-visual {
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .pipeline-step {
+    max-width: 160px;
+  }
+}
+
+@media (max-width: 768px) {
+  .agent-cards { grid-template-columns: 1fr; }
+  .pains-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+  .pain-arrow {
+    transform: rotate(90deg);
+    font-size: 18px;
+  }
+  .audience-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .tools-grid {
+    grid-template-columns: 1fr;
+  }
+  .pipeline-visual {
+    flex-direction: column;
+    align-items: center;
+  }
+  .pipeline-arrow {
+    transform: rotate(90deg);
+  }
+  .section-inner {
+    padding: 48px 0;
+  }
+}
+
+@media (max-width: 480px) {
+  .audience-grid {
+    grid-template-columns: 1fr;
+    max-width: 280px;
+    margin: 0 auto;
+  }
+}
+
+/* ── 无障碍：减少动画 ──────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-container { scroll-behavior: auto; }
+  .scanlines-fixed { animation: none; }
+  .landing-container.exiting { animation: none; opacity: 0; }
+  .glitch-title::before,
+  .glitch-title::after { animation: none; }
+  .typewriter-subtitle {
+    animation: none;
+    border-right: none;
+    max-width: 100%;
+    overflow: visible;
+  }
+  .orb-fixed { animation: none; }
+  .enter-button { animation: none; }
+  .scroll-arrow { animation: none; }
+  .section-reveal {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+}

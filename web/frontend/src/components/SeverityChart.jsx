@@ -6,8 +6,7 @@ const { Text } = Typography;
 
 // Modern gradient palette: blue-purple-indigo scheme
 const SEVERITY_DATA = [
-  { name: 'CRITICAL', color: '#ef4444', gradient: ['#ef4444', '#dc2626'] },
-  { name: 'HIGH', color: '#f97316', gradient: ['#f97316', '#ea580c'] },
+  { name: 'HIGH/CRITICAL', color: '#ef4444', gradient: ['#ef4444', '#dc2626'] },
   { name: 'MEDIUM', color: '#eab308', gradient: ['#eab308', '#ca8a04'] },
   { name: 'LOW', color: '#22c55e', gradient: ['#22c55e', '#16a34a'] },
   { name: 'INFORMATIONAL', color: '#6366f1', gradient: ['#6366f1', '#4f46e5'] },
@@ -40,12 +39,15 @@ export default function SeverityChart({ summary }) {
   }
 
   const data = SEVERITY_DATA
-    .map((s) => ({
-      name: s.name,
-      value: summary.by_severity?.[s.name] || 0,
-      color: s.color,
-      gradient: s.gradient,
-    }))
+    .map((s) => {
+      let value;
+      if (s.name === 'HIGH/CRITICAL') {
+        value = (summary.by_severity?.CRITICAL || 0) + (summary.by_severity?.HIGH || 0);
+      } else {
+        value = summary.by_severity?.[s.name] || 0;
+      }
+      return { name: s.name, value, color: s.color, gradient: s.gradient };
+    })
     .filter((d) => d.value > 0);
 
   if (data.length === 0) {

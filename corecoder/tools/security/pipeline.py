@@ -43,7 +43,7 @@ class AuditConfig:
     tools: list[str] = field(
         default_factory=lambda: ["c_review", "insecure_defaults", "injection_scanner"]
     )
-    file_extensions: list[str] = field(default_factory=lambda: [".c", ".h", ".py", ".js", ".ts", ".jsx", ".tsx", ".yaml", ".yml", ".json", ".env", "Dockerfile", ".conf", ".cfg"])
+    file_extensions: list[str] = field(default_factory=lambda: [".c", ".h", ".py", ".js", ".ts", ".jsx", ".tsx", ".php", ".java", ".go", ".rb", ".yaml", ".yml", ".json", ".env", "Dockerfile", ".conf", ".cfg"])
     exclude_dirs: list[str] = field(default_factory=lambda: [".git", "node_modules", "__pycache__", ".venv", "venv", "build", "dist", ".claude", "skills"])
     model: str = ""
 

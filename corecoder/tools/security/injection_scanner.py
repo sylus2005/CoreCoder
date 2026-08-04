@@ -1,5 +1,4 @@
 """注入漏洞扫描 Tool.
-
 提取自:
 - trailofbits/skills: semgrep (静态分析模式匹配)
 - mukul975/Anthropic-Cybersecurity-Skills: Web Application Security 领域

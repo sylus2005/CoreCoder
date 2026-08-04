@@ -152,7 +152,7 @@ async def health():
 
 @router.post("/audit/upload", response_model=UploadResponse)
 async def upload_files(
-    files: list[UploadFile] = File(..., description="待上传的文件"),
+    files: list[UploadFile] | None = File(None, description="待上传的文件"),
     folder_name: str = Form("upload", description="上传文件夹名称"),
 ):
     """上传文件到临时目录，返回目标路径供审计使用.
@@ -171,27 +171,28 @@ async def upload_files(
     upload_dir.mkdir(parents=True, exist_ok=True)
 
     saved_files = []
-    loop = asyncio.get_running_loop()
-    for f in files:
-        # 保留相对路径结构（支持文件夹上传）
-        rel_path = f.filename or "unknown"
-        # 安全处理路径分隔符和路径穿越
-        rel_path = rel_path.replace("\\", "/")
-        if rel_path.startswith("/"):
-            rel_path = rel_path[1:]
-        # 防止路径穿越攻击
-        rel_path = _os.path.normpath(rel_path)
-        if rel_path.startswith(".."):
-            rel_path = rel_path.lstrip("./")
+    if files:
+        loop = asyncio.get_running_loop()
+        for f in files:
+            # 保留相对路径结构（支持文件夹上传）
+            rel_path = f.filename or "unknown"
+            # 安全处理路径分隔符和路径穿越
+            rel_path = rel_path.replace("\\", "/")
+            if rel_path.startswith("/"):
+                rel_path = rel_path[1:]
+            # 防止路径穿越攻击
+            rel_path = _os.path.normpath(rel_path)
+            if rel_path.startswith(".."):
+                rel_path = rel_path.lstrip("./")
 
-        dest_path = upload_dir / rel_path
-        dest_path.parent.mkdir(parents=True, exist_ok=True)
+            dest_path = upload_dir / rel_path
+            dest_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # 异步读取
-        content = await f.read()
-        # ★ 在线程池中执行磁盘 I/O，避免阻塞事件循环
-        await loop.run_in_executor(None, lambda p=dest_path, c=content: _write_file(p, c))
-        saved_files.append(str(dest_path.relative_to(upload_dir)))
+            # 异步读取
+            content = await f.read()
+            # ★ 在线程池中执行磁盘 I/O，避免阻塞事件循环
+            await loop.run_in_executor(None, lambda p=dest_path, c=content: _write_file(p, c))
+            saved_files.append(str(dest_path.relative_to(upload_dir)))
 
     return UploadResponse(
         target_path=str(upload_dir.resolve()),

@@ -357,3 +357,16 @@ html, body {
   accent-color: #6366f1;
   margin-right: 6px;
 }
+
+/* ================================================================
+   Landing Page Entry — 主应用入场动画
+   ================================================================ */
+
+@keyframes appFadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.app-entering {
+  animation: appFadeIn 0.5s ease-out;
+}

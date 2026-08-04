@@ -7,8 +7,6 @@ from .edit import EditFileTool
 from .glob_tool import GlobTool
 from .grep import GrepTool
 from .agent import AgentTool
-from .now import NowTool
-from .fetch import FetchUrlTool
 from .security.c_review import CReviewTool
 from .security.insecure_defaults import InsecureDefaultsTool
 from .security.injection_scanner import InjectionScannerTool
@@ -24,8 +22,6 @@ ALL_TOOLS = [
     GlobTool(),
     GrepTool(),
     AgentTool(),
-    NowTool(),
-    FetchUrlTool(),
     CReviewTool(),
     InsecureDefaultsTool(),
     InjectionScannerTool(),
