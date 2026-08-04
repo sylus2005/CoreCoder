@@ -11,13 +11,13 @@ import {
 const { Text } = Typography;
 
 /**
- * 历史对话面板 — 显示之前的需求操作和结果报告.
+ * 历史对话面板 — 显示之前的对话和结果报告.
  *
  * 数据存储在 localStorage 中，包含:
  * - id, session_id: 对话标识
- * - message: 用户输入的需求
+ * - topic: 对话主题（从第一次用户需求提取）
+ * - turns: [{userMessage, aiResponse, timestamp, toolCalls}] 多轮对话
  * - target: 审计目标路径
- * - chatContent: Agent 响应内容
  * - timestamp: 创建时间
  */
 export default function HistoryPanel({ history, onSelect, onDelete, activeSessionId }) {
@@ -108,13 +108,18 @@ export default function HistoryPanel({ history, onSelect, onDelete, activeSessio
                     textOverflow: 'ellipsis',
                     whiteSpace: 'nowrap',
                   }}>
-                    {item.message || '(no message)'}
+                    {item.topic || item.message || '(no topic)'}
                   </Text>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3 }}>
                     <ClockCircleOutlined style={{ fontSize: 10, color: '#94a3b8' }} />
                     <Text style={{ fontSize: 10, color: '#94a3b8' }}>
                       {new Date(item.timestamp).toLocaleString()}
                     </Text>
+                    {item.turns && item.turns.length > 1 && (
+                      <Tag color="blue" style={{ fontSize: 10, lineHeight: '14px', padding: '0 4px', borderRadius: 4, margin: 0 }}>
+                        {item.turns.length} turns
+                      </Tag>
+                    )}
                     {isActive && (
                       <Tag color="purple" style={{ fontSize: 10, lineHeight: '14px', padding: '0 4px', borderRadius: 4, margin: 0 }}>
                         active

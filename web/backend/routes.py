@@ -946,16 +946,27 @@ def _generate_security_report_docx(markdown_content: str, chat: dict) -> bytes:
     section.top_margin = Cm(2.5)
     section.bottom_margin = Cm(2.5)
 
-    # ── 默认样式 ──
+    # ── 默认样式（统一西文 + 东亚字体）──
     style = doc.styles["Normal"]
     style.font.name = "Calibri"
     style.font.size = Pt(11)
     style.paragraph_format.line_spacing_rule = WD_LINE_SPACING.MULTIPLE
     style.paragraph_format.line_spacing = 1.5
+    # 为 Normal 样式设置东亚字体
+    style_rPr = style.element.get_or_add_rPr()
+    style_rFonts = style_rPr.find(qn('w:rFonts'))
+    if style_rFonts is None:
+        style_rFonts = OxmlElement('w:rFonts')
+        style_rPr.insert(0, style_rFonts)
+    style_rFonts.set(qn('w:ascii'), 'Calibri')
+    style_rFonts.set(qn('w:hAnsi'), 'Calibri')
+    style_rFonts.set(qn('w:eastAsia'), '微软雅黑')
+    style_rFonts.set(qn('w:cs'), 'Calibri')
 
     def set_font(run, name="Calibri", size=11, bold=False, color=None, mono=False):
-        """设置 run 字体属性."""
-        run.font.name = "Consolas" if mono else name
+        """设置 run 字体属性（含西文 + 东亚字体一致性）."""
+        western_font = "Consolas" if mono else name
+        _set_run_rfonts(run, western_font)
         run.font.size = Pt(size)
         run.bold = bold
         if color:
@@ -1148,6 +1159,23 @@ def _generate_security_report_docx(markdown_content: str, chat: dict) -> bytes:
     return buf.read()
 
 
+def _set_run_rfonts(run, western_font: str, ea_font: str = "微软雅黑"):
+    """设置 docx Run 的西文和东亚字体（通过 w:rFonts XML 确保中英文一致）."""
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+
+    rPr = run._r.get_or_add_rPr()
+    rFonts = rPr.find(qn('w:rFonts'))
+    if rFonts is None:
+        rFonts = OxmlElement('w:rFonts')
+        rPr.insert(0, rFonts)
+    rFonts.set(qn('w:ascii'), western_font)
+    rFonts.set(qn('w:hAnsi'), western_font)
+    rFonts.set(qn('w:eastAsia'), ea_font)
+    rFonts.set(qn('w:cs'), western_font)
+    run.font.name = western_font
+
+
 def _add_inline_markdown(para, text: str):
     """解析 inline markdown (粗体/斜体/代码) 并添加到段落."""
     import re
@@ -1166,23 +1194,23 @@ def _add_inline_markdown(para, text: str):
         prefix = text[last_end:match.start()]
         if prefix:
             run = para.add_run(prefix)
-            run.font.name = "Calibri"
             run.font.size = Pt(11)
+            _set_run_rfonts(run, "Calibri")
 
         if match.group(1):  # 粗体
             run = para.add_run(match.group(2))
-            run.font.name = "Calibri"
             run.font.size = Pt(11)
             run.bold = True
+            _set_run_rfonts(run, "Calibri")
         elif match.group(3):  # 斜体
             run = para.add_run(match.group(4))
-            run.font.name = "Calibri"
             run.font.size = Pt(11)
             run.italic = True
+            _set_run_rfonts(run, "Calibri")
         elif match.group(5):  # 代码
             run = para.add_run(match.group(6))
-            run.font.name = "Consolas"
             run.font.size = Pt(9.5)
+            _set_run_rfonts(run, "Consolas")
 
         last_end = match.end()
 
@@ -1190,8 +1218,8 @@ def _add_inline_markdown(para, text: str):
     suffix = text[last_end:]
     if suffix:
         run = para.add_run(suffix)
-        run.font.name = "Calibri"
         run.font.size = Pt(11)
+        _set_run_rfonts(run, "Calibri")
 
 
 # ── Chat Stream 路由 ──────────────────────────────────────────

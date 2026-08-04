@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Card, Typography, Tag, Spin, Space, Button, Modal } from 'antd';
+import { Card, Typography, Tag, Spin, Space, Button, Modal, Collapse } from 'antd';
 import {
   CheckCircleOutlined,
   LoadingOutlined,
@@ -10,6 +10,7 @@ import {
   EyeOutlined,
   FileMarkdownOutlined,
   MessageOutlined,
+  CaretRightOutlined,
 } from '@ant-design/icons';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -38,17 +39,38 @@ const SEVERITY_COLORS = {
 
 const API_BASE = 'http://localhost:8000';
 
+function formatTime(ts) {
+  if (!ts) return '';
+  const d = new Date(ts);
+  return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
+}
+
+function truncate(text, maxLen) {
+  if (!text) return '';
+  return text.length > maxLen ? text.substring(0, maxLen) + '...' : text;
+}
+
 export default function AuditLog({
   logs, phaseInfo, findings, auditing, chatMode,
-  chatContent, toolCalls, chatDone, auditId,
-  conversationTopic, lastUserMessage,
+  turns, currentResponse, currentToolCalls, chatDone, auditId,
+  conversationTopic,
 }) {
   const logEndRef = useRef(null);
   const [previewVisible, setPreviewVisible] = useState(false);
+  const [previewContent, setPreviewContent] = useState('');
+  // ★ 当前展开的 turn key（默认展开最新一个）
+  const [activeTurnKeys, setActiveTurnKeys] = useState([]);
+
+  // ★ 当 turns 变化时，自动展开最新 turn
+  useEffect(() => {
+    if (turns.length > 0 && chatDone) {
+      setActiveTurnKeys([String(turns.length - 1)]);
+    }
+  }, [turns.length, chatDone]);
 
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [logs, chatContent]);
+  }, [logs, currentResponse]);
 
   // Calculate phase progress
   const phaseOrder = ['recon', 'hunt', 'report'];
@@ -60,15 +82,113 @@ export default function AuditLog({
     return acc;
   }, {});
 
-  const handleDownloadMarkdown = () => {
-    const blob = new Blob([chatContent], { type: 'text/markdown' });
+  const handleDownloadMarkdown = (content) => {
+    const blob = new Blob([content || ''], { type: 'text/markdown' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
     a.download = `SECURITY_AUDIT_REPORT_${new Date().toISOString().slice(0, 10)}.md`;
+    document.body.appendChild(a);
     a.click();
+    document.body.removeChild(a);
     URL.revokeObjectURL(url);
   };
+
+  const handlePreview = (content) => {
+    setPreviewContent(content || '');
+    setPreviewVisible(true);
+  };
+
+  // ★ 构建 Collapse items（已完成的 turns）
+  const collapseItems = turns.map((turn, idx) => ({
+    key: String(idx),
+    label: (
+      <Space size={8} wrap style={{ width: '100%' }}>
+        <Text
+          type="secondary"
+          style={{ fontSize: 12, fontWeight: 600, fontFamily: 'monospace', flexShrink: 0 }}
+        >
+          Q{idx + 1}:
+        </Text>
+        <Text
+          style={{
+            fontSize: 13,
+            fontWeight: idx === turns.length - 1 ? 600 : 400,
+            color: idx === turns.length - 1 ? '#334155' : '#64748b',
+            flex: 1,
+          }}
+          ellipsis={{ tooltip: turn.userMessage }}
+        >
+          {truncate(turn.userMessage, 50)}
+        </Text>
+        <Text type="secondary" style={{ fontSize: 11, flexShrink: 0 }}>
+          {formatTime(turn.timestamp)}
+        </Text>
+        {idx === turns.length - 1 && (
+          <Tag color="purple" style={{ borderRadius: 8, fontSize: 10, margin: 0, flexShrink: 0 }}>
+            最新
+          </Tag>
+        )}
+      </Space>
+    ),
+    children: (
+      <div>
+        {/* 本轮工具调用 */}
+        {turn.toolCalls && turn.toolCalls.length > 0 && (
+          <div style={{
+            marginBottom: 12,
+            padding: '8px 12px',
+            background: '#fffbeb',
+            borderRadius: 8,
+            border: '1px solid #fde68a',
+          }}>
+            <Text type="secondary" style={{ fontSize: 11, fontWeight: 600 }}>
+              🔧 工具调用 ({turn.toolCalls.length})
+            </Text>
+            {turn.toolCalls.map((tc, tci) => (
+              <div key={tci} style={{ fontSize: 11, color: '#92400e', marginTop: 4 }}>
+                <Text style={{ fontFamily: 'monospace', fontSize: 11, color: '#b45309' }}>
+                  {tc.tool}
+                </Text>
+                <Text type="secondary" style={{ fontSize: 10, marginLeft: 8 }}>
+                  {tc.time || ''}
+                </Text>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Markdown 响应 */}
+        <div className="markdown-content" style={{ maxHeight: 500, overflow: 'auto' }}>
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+            {turn.aiResponse || '*（无响应内容）*'}
+          </ReactMarkdown>
+        </div>
+
+        {/* 下载按钮 */}
+        {turn.aiResponse && (
+          <Space size={8} style={{ marginTop: 12 }}>
+            <Button
+              size="small"
+              icon={<FileMarkdownOutlined />}
+              onClick={() => handleDownloadMarkdown(turn.aiResponse)}
+              style={{ borderRadius: 6, fontWeight: 500 }}
+            >
+              下载 .md
+            </Button>
+            <Button
+              size="small"
+              icon={<EyeOutlined />}
+              onClick={() => handlePreview(turn.aiResponse)}
+              style={{ borderRadius: 6, fontWeight: 500 }}
+            >
+              预览
+            </Button>
+          </Space>
+        )}
+      </div>
+    ),
+  }));
 
   return (
     <div style={{ maxWidth: 960, margin: '0 auto' }}>
@@ -173,7 +293,7 @@ export default function AuditLog({
         </Card>
       )}
 
-      {/* ── ★ 对话主题 (显示在实时日志上方) ── */}
+      {/* ── ★ 对话主题（从第一次需求提取，固定不变）── */}
       {chatMode && conversationTopic && (
         <Card
           className="content-card"
@@ -182,12 +302,15 @@ export default function AuditLog({
         >
           <Space size={8}>
             <MessageOutlined style={{ color: '#6366f1', fontSize: 15 }} />
-            <Text style={{ fontSize: 13, color: '#94a3b8', fontWeight: 400 }}>当前对话主题：</Text>
+            <Text style={{ fontSize: 13, color: '#94a3b8', fontWeight: 400 }}>对话主题：</Text>
             <Text style={{ fontSize: 14, fontWeight: 600, color: '#334155' }}>
               {conversationTopic}
             </Text>
+            <Text type="secondary" style={{ fontSize: 11, marginLeft: 4 }}>
+              （{turns.length} 轮对话）
+            </Text>
             {auditing && <Tag color="processing" style={{ borderRadius: 12, fontSize: 11 }}>进行中</Tag>}
-            {chatDone && <Tag color="success" style={{ borderRadius: 12, fontSize: 11 }}>已完成</Tag>}
+            {chatDone && !auditing && <Tag color="success" style={{ borderRadius: 12, fontSize: 11 }}>已完成</Tag>}
           </Space>
         </Card>
       )}
@@ -284,8 +407,39 @@ export default function AuditLog({
         </div>
       </Card>
 
-      {/* ── AI Agent Response Card (chat mode) — only shown when done ── */}
-      {chatMode && chatDone && chatContent && (
+      {/* ── ★ 当前轮次流式输出（正在生成中，未完成）── */}
+      {chatMode && auditing && currentResponse && (
+        <Card
+          className="content-card"
+          style={{ marginBottom: 16 }}
+          title={
+            <Space>
+              <div style={{
+                width: 28, height: 28, borderRadius: 7,
+                background: 'linear-gradient(135deg, #f59e0b, #f97316)',
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                <RobotOutlined style={{ color: '#fff', fontSize: 14 }} />
+              </div>
+              <span style={{ fontSize: 14, fontWeight: 600, color: '#334155' }}>
+                Q{turns.length}: {truncate(turns[turns.length - 1]?.userMessage || '', 40)}
+              </span>
+              <Tag color="processing" style={{ borderRadius: 12, fontSize: 11 }}>生成中...</Tag>
+            </Space>
+          }
+          bodyStyle={{ padding: '16px 20px' }}
+        >
+          <div className="markdown-content" style={{ maxHeight: 500, overflow: 'auto' }}>
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+              {currentResponse}
+            </ReactMarkdown>
+            <span className="blinking-cursor">▌</span>
+          </div>
+        </Card>
+      )}
+
+      {/* ── ★ 多轮对话 Collapse（已完成的 turns）── */}
+      {chatMode && chatDone && turns.length > 0 && (
         <Card
           className="content-card"
           style={{ marginBottom: 20 }}
@@ -298,40 +452,42 @@ export default function AuditLog({
               }}>
                 <RobotOutlined style={{ color: '#fff', fontSize: 14 }} />
               </div>
-              <span style={{ fontSize: 15, fontWeight: 600, color: '#334155' }}>AI Agent Response</span>
-              {auditing && <Spin size="small" />}
+              <span style={{ fontSize: 15, fontWeight: 600, color: '#334155' }}>
+                AI Agent Response
+              </span>
             </Space>
           }
           extra={
-            chatDone && (
-              <Space size={8}>
-                <Button
-                  size="small"
-                  icon={<FileMarkdownOutlined />}
-                  onClick={handleDownloadMarkdown}
-                  style={{
-                    borderRadius: 6,
-                    fontWeight: 500,
-                    borderColor: '#94a3b8',
-                    color: '#64748b',
-                  }}
-                >
-                  下载 .md
-                </Button>
-              </Space>
-            )
+            <Space size={8}>
+              <Button
+                size="small"
+                icon={<FileMarkdownOutlined />}
+                onClick={() => {
+                  // 下载所有 turns 合并的 Markdown
+                  const allMd = turns.map((t, i) => (
+                    `---\n### Q${i + 1}: ${t.userMessage}\n\n${t.aiResponse}\n`
+                  )).join('\n');
+                  handleDownloadMarkdown(allMd);
+                }}
+                style={{ borderRadius: 6, fontWeight: 500, borderColor: '#94a3b8', color: '#64748b' }}
+              >
+                下载全部 .md
+              </Button>
+            </Space>
           }
-          bodyStyle={{ padding: '16px 20px' }}
+          bodyStyle={{ padding: '0' }}
         >
-          <div className="markdown-content" style={{
-            maxHeight: 600,
-            overflow: 'auto',
-          }}>
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>
-              {chatContent}
-            </ReactMarkdown>
-            {auditing && <span className="blinking-cursor">▌</span>}
-          </div>
+          <Collapse
+            activeKey={activeTurnKeys}
+            onChange={(keys) => setActiveTurnKeys(keys)}
+            expandIcon={({ isActive }) => <CaretRightOutlined rotate={isActive ? 90 : 0} />}
+            style={{
+              border: 'none',
+              borderRadius: '0 0 12px 12px',
+              background: 'transparent',
+            }}
+            items={collapseItems}
+          />
         </Card>
       )}
 
@@ -349,7 +505,13 @@ export default function AuditLog({
         width={900}
         footer={
           <Space>
-            <Button icon={<FileMarkdownOutlined />} onClick={handleDownloadMarkdown}>
+            <Button
+              icon={<FileMarkdownOutlined />}
+              onClick={() => {
+                handleDownloadMarkdown(previewContent);
+                setPreviewVisible(false);
+              }}
+            >
               下载 Markdown
             </Button>
           </Space>
@@ -362,7 +524,7 @@ export default function AuditLog({
           padding: '8px 0',
         }}>
           <ReactMarkdown remarkPlugins={[remarkGfm]}>
-            {chatContent}
+            {previewContent}
           </ReactMarkdown>
         </div>
       </Modal>

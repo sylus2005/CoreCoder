@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { Layout, Button, Space, Typography, ConfigProvider, theme, Tag, Input, Tooltip } from 'antd';
 import {
   PlayCircleOutlined,
@@ -22,22 +22,11 @@ const { TextArea } = Input;
 const DEFAULT_TARGET = './demo/vulnerable-utils/';
 const HISTORY_KEY = 'corecoder_chat_history';
 
-// ★ 从 AI 响应中提取对话主题
-function extractTopic(chatContent) {
-  if (!chatContent) return '';
-  // 尝试提取第一个 # 标题
-  const h1Match = chatContent.match(/^#\s+(.+)$/m);
-  if (h1Match) return h1Match[1].trim().substring(0, 60);
-  // 尝试提取第一个 ## 标题
-  const h2Match = chatContent.match(/^##\s+(.+)$/m);
-  if (h2Match) return h2Match[1].trim().substring(0, 60);
-  // 否则取第一行非空文本
-  const firstLine = chatContent.split('\n').find((l) => l.trim() && !l.startsWith('```'));
-  if (firstLine) {
-    const cleaned = firstLine.replace(/^[#*\-\s]+/, '').trim();
-    return cleaned.substring(0, 60);
-  }
-  return '';
+// ★ 从用户消息中提取对话主题（固定使用第一次请求）
+function extractTopic(message) {
+  if (!message) return '';
+  const cleaned = message.replace(/^[#*\-\s]+/, '').trim();
+  return cleaned.substring(0, 60);
 }
 
 function loadHistory() {
@@ -68,29 +57,74 @@ export default function App() {
   const [uploadedFiles, setUploadedFiles] = useState([]);
   const [uploadedTargetPath, setUploadedTargetPath] = useState('');
   const [chatMode, setChatMode] = useState(false);
-  const [chatContent, setChatContent] = useState('');
-  const [toolCalls, setToolCalls] = useState([]);
   const [chatDone, setChatDone] = useState(false);
-  const [sessionId, setSessionId] = useState('');  // ★ 多轮对话 session
-  const [history, setHistory] = useState(loadHistory); // ★ 历史记录
-  const [lastUserMessage, setLastUserMessage] = useState(''); // ★ 最近一条用户消息
+  const [sessionId, setSessionId] = useState('');
+
+  // ★★★ 多轮对话状态（重构：取代单一 chatContent / toolCalls / lastUserMessage）★★★
+  // turns: [{userMessage, aiResponse, timestamp, toolCalls}]
+  const [turns, setTurns] = useState([]);
+  // 当前轮次的流式响应（存在状态中以便中途渲染）
+  const [currentResponse, setCurrentResponse] = useState('');
+  // 当前轮次的工具调用
+  const [currentToolCalls, setCurrentToolCalls] = useState([]);
+  // ★ 对话主题：从第一次用户需求提取后固定，不再变化
+  const [conversationTopic, setConversationTopic] = useState('');
+
+  // ★ 日志隔离 token：每次新建对话更新，日志回调中校验
+  const [logSessionToken, setLogSessionToken] = useState(Date.now);
+
+  // 历史记录
+  const [history, setHistory] = useState(loadHistory);
 
   const eventSourceRef = useRef(null);
   const inputRef = useRef(null);
-
-  // ★ 从 chatContent 提取对话主题
-  const conversationTopic = useMemo(() => extractTopic(chatContent), [chatContent]);
+  // ★ 用 ref 存储 logSessionToken，确保 SSE 回调中读取最新值
+  const logTokenRef = useRef(logSessionToken);
+  useEffect(() => { logTokenRef.current = logSessionToken; }, [logSessionToken]);
 
   // 持久化历史记录
   useEffect(() => {
     saveHistory(history);
   }, [history]);
 
+  // ── 日志工具函数 ──────────────────────────────
+
   const addLog = useCallback((message, type = 'info') => {
-    setLogs((prev) => [...prev, { id: Date.now(), message, type, time: new Date().toLocaleTimeString() }]);
+    setLogs((prev) => [...prev, {
+      id: Date.now(),
+      message,
+      type,
+      time: new Date().toLocaleTimeString(),
+    }]);
   }, []);
 
-  const reset = useCallback(() => {
+  // ★ 带 token 校验的日志：仅当 session token 匹配时才添加日志
+  const addLogChecked = useCallback((message, type = 'info', token) => {
+    if (token !== logTokenRef.current) return; // 旧会话的事件，丢弃
+    setLogs((prev) => [...prev, {
+      id: Date.now(),
+      message,
+      type,
+      time: new Date().toLocaleTimeString(),
+    }]);
+  }, []);
+
+  // ── 重置函数 ──────────────────────────────
+
+  // ★ 轻量重置：清除瞬时 UI 状态（用于同一会话内发送新请求）
+  const resetTransient = useCallback(() => {
+    setAuditing(false);
+    setChatDone(false);
+    setCurrentResponse('');
+    setCurrentToolCalls([]);
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close();
+      eventSourceRef.current = null;
+    }
+  }, []);
+
+  // ★ 完全重置：清除一切（Pipeline 模式切换、点击 Reset、报告后返回）
+  const fullReset = useCallback(() => {
     setAuditing(false);
     setAuditId(null);
     setLogs([]);
@@ -98,25 +132,18 @@ export default function App() {
     setPhaseInfo({});
     setSummary(null);
     setReportMd('');
-    setChatContent('');
     setChatMode(false);
-    setToolCalls([]);
     setChatDone(false);
-    setLastUserMessage('');
-    // ★ 保持 sessionId 不变（维持多轮对话连续性）
+    setTurns([]);
+    setCurrentResponse('');
+    setCurrentToolCalls([]);
     if (eventSourceRef.current) {
       eventSourceRef.current.close();
       eventSourceRef.current = null;
     }
   }, []);
 
-  // ★ 完全重置（包括 session，切换上下文时用）
-  const fullReset = useCallback(() => {
-    setSessionId('');
-    reset();
-  }, [reset]);
-
-  // ★ 新建对话: 清空当前内容 + 生成新 sessionId
+  // ★ 新建对话：完全重置 + 清除 session + 更新日志 token + 新 topic
   const handleNewConversation = useCallback(() => {
     if (eventSourceRef.current) {
       eventSourceRef.current.close();
@@ -129,17 +156,22 @@ export default function App() {
     setPhaseInfo({});
     setSummary(null);
     setReportMd('');
-    setChatContent('');
     setChatMode(false);
-    setToolCalls([]);
     setChatDone(false);
-    setLastUserMessage('');
-    setSessionId('');  // ★ 生成新的 sessionId
+    setTurns([]);
+    setCurrentResponse('');
+    setCurrentToolCalls([]);
+    setSessionId('');
+    setConversationTopic('');
+    const newToken = Date.now();
+    setLogSessionToken(newToken);
+    logTokenRef.current = newToken;
     // 聚焦输入框
     inputRef.current?.focus();
   }, []);
 
-  // 文件上传成功回调
+  // ── 文件上传回调 ──────────────────────────────
+
   const handleFilesUploaded = useCallback((targetPath, files) => {
     setUploadedTargetPath(targetPath);
     setUploadedFiles(files);
@@ -158,7 +190,7 @@ export default function App() {
   // ── 快速 Pipeline 审计 ──────────────────────────────
 
   const handlePipelineAudit = useCallback(async () => {
-    reset();
+    fullReset();
     setAuditing(true);
     setChatMode(false);
     addLog('🔗 Connecting to CoreCoder Security Engine (Pipeline)...', 'info');
@@ -196,80 +228,139 @@ export default function App() {
       addLog(`❌ Startup failed: ${err.message}`, 'error');
       setAuditing(false);
     }
-  }, [target, uploadedTargetPath, reset, addLog]);
+  }, [target, uploadedTargetPath, fullReset, addLog]);
 
-  // ── AI Agent 对话审计 ──────────────────────────────
+  // ── AI Agent 对话审计（多轮对话）──────────────────────
 
   const handleChatAudit = useCallback(async (message) => {
-    reset();
+    // ★ 不调用 fullReset！保留之前的 turns、logs、topic
+    resetTransient();
     setAuditing(true);
     setChatMode(true);
-    setChatContent('');
-    setLastUserMessage(message);
+    setCurrentResponse('');
+    setCurrentToolCalls([]);
+
+    // ★ 第一次请求：固定对话主题
+    if (turns.length === 0 && !conversationTopic) {
+      const topic = extractTopic(message);
+      setConversationTopic(topic);
+    }
+
+    // ★ 追加新的 turn（响应先为空）
+    const newTurn = {
+      userMessage: message,
+      aiResponse: '',
+      timestamp: Date.now(),
+      toolCalls: [],
+    };
+    setTurns((prev) => [...prev, newTurn]);
 
     addLog('🤖 Starting CoreCoder AI Agent...', 'info');
 
     const auditTarget = uploadedTargetPath || target;
     const msg = message.trim() || `请审计目标路径: ${auditTarget}`;
 
+    // 捕获当前 session token 用于 SSE 回调过滤
+    const sessionToken = logTokenRef.current;
+
     try {
-      // ★ 传入 session_id 实现多轮对话
       const { chat_id, session_id } = await startChat(msg, auditTarget, sessionId || undefined);
       if (!sessionId) {
         setSessionId(session_id);
       }
       setAuditId(chat_id);
-      addLog(`✅ AI Agent connected — ID: ${chat_id}`, 'success');
-      addLog(`💬 "${msg}"`, 'info');
-      addLog(`📂 Target: ${auditTarget}`, 'info');
+      addLogChecked(`✅ AI Agent connected — ID: ${chat_id}`, 'success', sessionToken);
+      addLogChecked(`💬 "${msg}"`, 'info', sessionToken);
+      addLogChecked(`📂 Target: ${auditTarget}`, 'info', sessionToken);
 
       let lastContent = '';
+      const turnIndex = turns.length; // 当前 turn 的索引（追加前 turns 的长度）
+
       const es = connectChatStream(chat_id, {
         onLog: (data) => {
-          addLog(data.message || JSON.stringify(data), 'info');
+          addLogChecked(data.message || JSON.stringify(data), 'info', sessionToken);
         },
         onToolCall: (data) => {
-          setToolCalls((prev) => [...prev, { ...data, id: Date.now(), time: new Date().toLocaleTimeString() }]);
-          addLog(`🔧 Tool: ${data.tool}(${JSON.stringify(data.arguments)})`, 'finding');
+          const tcEntry = { ...data, id: Date.now(), time: new Date().toLocaleTimeString() };
+          setCurrentToolCalls((prev) => [...prev, tcEntry]);
+          // 同时更新当前 turn 的 toolCalls
+          setTurns((prev) => {
+            const updated = [...prev];
+            if (updated[turnIndex]) {
+              updated[turnIndex] = {
+                ...updated[turnIndex],
+                toolCalls: [...updated[turnIndex].toolCalls, tcEntry],
+              };
+            }
+            return updated;
+          });
+          addLogChecked(`🔧 Tool: ${data.tool}(${JSON.stringify(data.arguments)})`, 'finding', sessionToken);
         },
         onToken: (data) => {
           lastContent += (data.content || '');
-          setChatContent((prev) => prev + (data.content || ''));
+          setCurrentResponse((prev) => prev + (data.content || ''));
+          // 同时更新当前 turn 的响应
+          setTurns((prev) => {
+            const updated = [...prev];
+            if (updated[turnIndex]) {
+              updated[turnIndex] = {
+                ...updated[turnIndex],
+                aiResponse: updated[turnIndex].aiResponse + (data.content || ''),
+              };
+            }
+            return updated;
+          });
         },
         onDone: (data) => {
           const finalContent = data.content || lastContent;
-          if (finalContent) {
-            setChatContent(finalContent);
-          }
+          setCurrentResponse(finalContent);
+          // 最终更新当前 turn
+          setTurns((prev) => {
+            const updated = [...prev];
+            if (updated[turnIndex]) {
+              updated[turnIndex] = {
+                ...updated[turnIndex],
+                aiResponse: finalContent || updated[turnIndex].aiResponse,
+              };
+            }
+            return updated;
+          });
           setChatDone(true);
-          addLog('✅ AI Agent 分析完成', 'success');
+          addLogChecked('✅ AI Agent 分析完成', 'success', sessionToken);
           setAuditing(false);
 
-          // ★ 保存到历史记录
-          const entry = {
-            id: chat_id,
-            session_id: sessionId || session_id,
-            message: msg,
-            target: auditTarget,
-            chatContent: finalContent,
-            toolCalls: [],
-            timestamp: Date.now(),
-          };
-          setHistory((prev) => {
-            const filtered = prev.filter((h) => h.session_id !== entry.session_id);
-            return [entry, ...filtered].slice(0, 50);
+          // ★ 保存到历史记录（含完整 turns）
+          setTurns((currentTurns) => {
+            const entry = {
+              id: chat_id,
+              session_id: sessionId || session_id,
+              topic: conversationTopic || extractTopic(message),
+              turns: currentTurns.map((t) => ({
+                userMessage: t.userMessage,
+                aiResponse: t.aiResponse,
+                timestamp: t.timestamp,
+                toolCalls: t.toolCalls,
+              })),
+              target: auditTarget,
+              timestamp: Date.now(),
+            };
+            setHistory((prev) => {
+              const filtered = prev.filter((h) => h.session_id !== entry.session_id);
+              return [entry, ...filtered].slice(0, 50);
+            });
+            return currentTurns;
           });
         },
         onError: () => {
-          addLog('⚠️ Agent connection lost', 'error');
+          addLogChecked('⚠️ Agent connection lost', 'error', sessionToken);
         },
       });
       eventSourceRef.current = es;
     } catch (err) {
-      addLog(`❌ Agent startup failed: ${err.message}`, 'error');
+      addLogChecked(`❌ Agent startup failed: ${err.message}`, 'error', sessionToken);
       setAuditing(false);
     }
-  }, [target, uploadedTargetPath, sessionId, reset, addLog]);
+  }, [target, uploadedTargetPath, sessionId, turns, conversationTopic, resetTransient, addLog, addLogChecked]);
 
   // ── Start: 智能选择 Pipeline 或 Agent ──────────────
 
@@ -303,13 +394,21 @@ export default function App() {
     if (item.session_id) {
       setSessionId(item.session_id);
     }
-    setChatContent(item.chatContent || '');
+    setTurns(item.turns || []);
+    setConversationTopic(item.topic || '');
     setChatMode(true);
     setChatDone(true);
     setAuditId(item.id);
     setTarget(item.target || DEFAULT_TARGET);
     setAuditing(false);
-    setLastUserMessage(item.message || '');
+    setCurrentResponse('');
+    setCurrentToolCalls([]);
+    // ★ 更新日志 token，防止旧 SSE 事件污染
+    const newToken = Date.now();
+    setLogSessionToken(newToken);
+    logTokenRef.current = newToken;
+    // ★ 清空日志（切换到历史对话）
+    setLogs([]);
     if (eventSourceRef.current) {
       eventSourceRef.current.close();
       eventSourceRef.current = null;
@@ -324,6 +423,9 @@ export default function App() {
   const highCount = findings.filter((f) => f.severity === 'HIGH' || f.severity === 'CRITICAL').length;
   const medCount = findings.filter((f) => f.severity === 'MEDIUM').length;
   const lowCount = findings.filter((f) => f.severity === 'LOW' || f.severity === 'INFORMATIONAL').length;
+
+  // ★ 判断是否有 chat 内容要展示（turns 有内容 或 正在流式接收）
+  const hasChatContent = turns.length > 0 || currentResponse;
 
   return (
     <ConfigProvider
@@ -390,7 +492,7 @@ export default function App() {
                 <RobotOutlined /> AI Agent
               </Tag>
             )}
-            {/* ★ 添加新对话按钮 */}
+            {/* ★ 新建对话按钮 */}
             <Tooltip title="新建对话">
               <Button
                 icon={<PlusOutlined />}
@@ -424,7 +526,7 @@ export default function App() {
             >
               {auditing ? (chatMode ? 'AI Analyzing...' : 'Auditing...') : 'Start Audit'}
             </Button>
-            {!auditing && (summary || chatContent) && (
+            {!auditing && (summary || hasChatContent) && (
               <Button
                 icon={<ReloadOutlined />}
                 onClick={fullReset}
@@ -482,33 +584,33 @@ export default function App() {
               overflow: 'auto',
               padding: '24px 28px 0 28px',
             }}>
-              {!summary && !chatContent ? (
+              {!summary && !hasChatContent ? (
                 <AuditLog
                   logs={logs}
                   phaseInfo={phaseInfo}
                   findings={findings}
                   auditing={auditing}
                   chatMode={chatMode}
-                  chatContent={chatContent}
-                  toolCalls={toolCalls}
+                  turns={turns}
+                  currentResponse={currentResponse}
+                  currentToolCalls={currentToolCalls}
                   chatDone={chatDone}
                   auditId={auditId}
                   conversationTopic={conversationTopic}
-                  lastUserMessage={lastUserMessage}
                 />
-              ) : chatMode && chatContent ? (
+              ) : chatMode && hasChatContent ? (
                 <AuditLog
                   logs={logs}
                   phaseInfo={phaseInfo}
                   findings={findings}
                   auditing={auditing}
                   chatMode={chatMode}
-                  chatContent={chatContent}
-                  toolCalls={toolCalls}
+                  turns={turns}
+                  currentResponse={currentResponse}
+                  currentToolCalls={currentToolCalls}
                   chatDone={chatDone}
                   auditId={auditId}
                   conversationTopic={conversationTopic}
-                  lastUserMessage={lastUserMessage}
                 />
               ) : (
                 <ReportView
@@ -520,7 +622,7 @@ export default function App() {
               )}
             </div>
 
-            {/* ── ★ 底部输入栏 (内容区域内，居中) ── */}
+            {/* ── 底部输入栏 (内容区域内，居中) ── */}
             <div style={{
               flexShrink: 0,
               background: '#ffffff',
@@ -532,7 +634,6 @@ export default function App() {
               gap: 12,
               boxShadow: '0 -2px 12px rgba(0,0,0,0.04)',
             }}>
-              {/* 输入区域：限制最大宽度 + 居中 */}
               <div style={{
                 display: 'flex',
                 alignItems: 'flex-end',
