@@ -13,7 +13,7 @@ import UploadPanel from './components/UploadPanel';
 import AuditLog from './components/AuditLog';
 import ReportView from './components/ReportView';
 import HistoryPanel from './components/HistoryPanel';
-import { startAudit, connectAuditStream, startChat, connectChatStream } from './api';
+import { startAudit, connectAuditStream, startChat, connectChatStream, API_BASE } from './api';
 import LandingPage from './components/LandingPage';
 
 const { Header, Sider, Content } = Layout;
@@ -354,8 +354,13 @@ export default function App() {
         },
         onReportReady: (data) => {
           // ★ 自动弹出浏览器下载窗口
+          // 修复: 后端推送的是相对路径(如 /api/reports/download/xxx)，
+          // 在本地开发时前端和后端不在同一端口，需要拼上 API_BASE
+          const downloadUrl = data.url.startsWith('http')
+            ? data.url
+            : `${API_BASE}${data.url}`;
           const a = document.createElement('a');
-          a.href = data.url;
+          a.href = downloadUrl;
           a.download = data.filename;
           document.body.appendChild(a);
           a.click();

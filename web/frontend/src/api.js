@@ -3,7 +3,10 @@
  * 封装与后端 FastAPI 的所有通信
  */
 
-const API_BASE = 'http://49.233.195.118';
+// ★ 优先使用环境变量（本地开发），回退到生产服务器地址
+const API_BASE = import.meta.env.VITE_API_BASE || 'http://49.233.195.118';
+
+export { API_BASE };
 
 /**
  * 启动安全审计 (正则 Pipeline - 快速扫描)

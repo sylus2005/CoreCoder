@@ -11,7 +11,9 @@ from pathlib import Path
 from .base import Tool
 
 # Word 和 PPTX 报告统一输出目录
-_REPORTS_DIR = Path.cwd() / "reports"
+# ★ 修复: 统一输出到 web/backend/reports/，与下载端点保持一致
+# 不再依赖 CWD，避免本地开发和服务器部署的路径差异
+_REPORTS_DIR = (Path(__file__).resolve().parents[2] / "web" / "backend" / "reports").resolve()
 
 
 class GenerateDocxReportTool(Tool):
