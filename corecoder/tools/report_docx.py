@@ -248,11 +248,26 @@ class GenerateDocxReportTool(Tool):
     @staticmethod
     def _set_font(run, name="Calibri", size=11, bold=False, color=None, mono=False):
         from docx.shared import Pt, RGBColor
-        run.font.name = "Consolas" if mono else name
+        from docx.oxml import OxmlElement
+        from docx.oxml.ns import qn
+
+        western_font = "Consolas" if mono else name
+        run.font.name = western_font
         run.font.size = Pt(size)
         run.bold = bold
         if color:
             run.font.color.rgb = RGBColor(*color)
+
+        # 设置东亚字体为宋体，确保中文不依赖系统默认字体
+        rPr = run._r.get_or_add_rPr()
+        rFonts = rPr.find(qn('w:rFonts'))
+        if rFonts is None:
+            rFonts = OxmlElement('w:rFonts')
+            rPr.insert(0, rFonts)
+        rFonts.set(qn('w:ascii'), western_font)
+        rFonts.set(qn('w:hAnsi'), western_font)
+        rFonts.set(qn('w:eastAsia'), '宋体')
+        rFonts.set(qn('w:cs'), western_font)
 
     def _add_heading_para(self, doc, text, size=16, color=None, center=False):
         from docx.shared import Pt
@@ -316,6 +331,16 @@ class GenerateDocxReportTool(Tool):
                     crun = cpara.add_run(cell_text)
                     crun.font.name = "Calibri"
                     crun.font.size = Pt(10)
+                    # 设置东亚字体为宋体
+                    crPr = crun._r.get_or_add_rPr()
+                    crFonts = crPr.find(qn('w:rFonts'))
+                    if crFonts is None:
+                        crFonts = OxmlElement('w:rFonts')
+                        crPr.insert(0, crFonts)
+                    crFonts.set(qn('w:ascii'), 'Calibri')
+                    crFonts.set(qn('w:hAnsi'), 'Calibri')
+                    crFonts.set(qn('w:eastAsia'), '宋体')
+                    crFonts.set(qn('w:cs'), 'Calibri')
                     if r_idx == 0:
                         crun.bold = True
                         crun.font.color.rgb = RGBColor(255, 255, 255)

@@ -20,7 +20,7 @@ const { Header, Sider, Content } = Layout;
 const { Text } = Typography;
 const { TextArea } = Input;
 
-const DEFAULT_TARGET = './demo/vulnerable-utils/';
+const DEFAULT_TARGET = '';
 const HISTORY_KEY = 'corecoder_chat_history';
 
 // ★ 从用户消息中提取对话主题（固定使用第一次请求）
