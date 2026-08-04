@@ -13,6 +13,9 @@ from .security.injection_scanner import InjectionScannerTool
 from .security.audit_tool import AuditTool
 from .report_docx import GenerateDocxReportTool
 from .report_pptx import GeneratePptxReportTool
+from .now import NowTool
+from .fetch import FetchUrlTool
+from .format_markdown import FormatMarkdownTool
 
 ALL_TOOLS = [
     BashTool(),
@@ -22,6 +25,9 @@ ALL_TOOLS = [
     GlobTool(),
     GrepTool(),
     AgentTool(),
+    NowTool(),
+    FetchUrlTool(),
+    FormatMarkdownTool(),
     CReviewTool(),
     InsecureDefaultsTool(),
     InjectionScannerTool(),
