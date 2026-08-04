@@ -15,6 +15,7 @@ from .report_docx import GenerateDocxReportTool
 from .report_pptx import GeneratePptxReportTool
 from .now import NowTool
 from .fetch import FetchUrlTool
+from .format_markdown import FormatMarkdownTool
 
 ALL_TOOLS = [
     BashTool(),
@@ -32,6 +33,7 @@ ALL_TOOLS = [
     GeneratePptxReportTool(),
     NowTool(),
     FetchUrlTool(),
+    FormatMarkdownTool(),
 ]
 
 
