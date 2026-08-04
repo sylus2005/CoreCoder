@@ -960,7 +960,7 @@ def _generate_security_report_docx(markdown_content: str, chat: dict) -> bytes:
         style_rPr.insert(0, style_rFonts)
     style_rFonts.set(qn('w:ascii'), 'Calibri')
     style_rFonts.set(qn('w:hAnsi'), 'Calibri')
-    style_rFonts.set(qn('w:eastAsia'), '微软雅黑')
+    style_rFonts.set(qn('w:eastAsia'), '宋体')
     style_rFonts.set(qn('w:cs'), 'Calibri')
 
     def set_font(run, name="Calibri", size=11, bold=False, color=None, mono=False):
@@ -1159,7 +1159,7 @@ def _generate_security_report_docx(markdown_content: str, chat: dict) -> bytes:
     return buf.read()
 
 
-def _set_run_rfonts(run, western_font: str, ea_font: str = "微软雅黑"):
+def _set_run_rfonts(run, western_font: str, ea_font: str = "宋体"):
     """设置 docx Run 的西文和东亚字体（通过 w:rFonts XML 确保中英文一致）."""
     from docx.oxml import OxmlElement
     from docx.oxml.ns import qn

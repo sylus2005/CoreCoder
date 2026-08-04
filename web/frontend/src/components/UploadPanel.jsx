@@ -331,7 +331,7 @@ export default function UploadPanel({
           value={target}
           onChange={(e) => onTargetChange(e.target.value)}
           disabled={disabled}
-          placeholder="./demo/vulnerable-utils/ or single file path"
+          placeholder="可选：输入文件或目录路径（留空可自由使用全部功能）"
           prefix={<span style={{ color: '#6366f1' }}>📁</span>}
           style={{
             borderRadius: 10,
@@ -341,7 +341,7 @@ export default function UploadPanel({
           }}
         />
         <Text style={{ color: '#94a3b8', fontSize: 11, display: 'block', marginTop: 6 }}>
-          Directory path or single file path to audit
+          留空可使用 CoreCoder 全部功能（抓取网页、格式化文档、生成报告等）
         </Text>
       </div>
 
