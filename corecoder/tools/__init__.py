@@ -13,6 +13,8 @@ from .security.injection_scanner import InjectionScannerTool
 from .security.audit_tool import AuditTool
 from .report_docx import GenerateDocxReportTool
 from .report_pptx import GeneratePptxReportTool
+from .now import NowTool
+from .fetch import FetchUrlTool
 
 ALL_TOOLS = [
     BashTool(),
@@ -28,6 +30,8 @@ ALL_TOOLS = [
     AuditTool(),
     GenerateDocxReportTool(),
     GeneratePptxReportTool(),
+    NowTool(),
+    FetchUrlTool(),
 ]
 
 
