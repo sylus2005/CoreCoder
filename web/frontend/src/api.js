@@ -3,7 +3,7 @@
  * 封装与后端 FastAPI 的所有通信
  */
 
-const API_BASE = 'http://localhost:8000';
+const API_BASE = 'http://49.233.195.118:8000';
 
 /**
  * 启动安全审计 (正则 Pipeline - 快速扫描)
