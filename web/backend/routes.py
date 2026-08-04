@@ -53,6 +53,32 @@ def _write_file(path: Path, content: bytes):
         f.write(content)
 
 
+def _is_security_message(message: str) -> bool:
+    """检测用户消息是否为安全审计意图.
+
+    用于判断 _run_chat() 是否应该套用"审计任务"模板，
+    还是将消息原样传递给 Agent 以使用其他工具（格式化/抓取/报告生成等）。
+
+    返回 True 表示安全审计意图，应使用审计模板。
+    """
+    if not message:
+        return False
+    audit_keywords = [
+        # English
+        "audit", "security", "vulnerability", "vulnerable", "cve", "cwe",
+        "memory safety", "buffer overflow", "use-after-free", "injection",
+        "hardcoded", "scan", "penetration", "exploit", "threat",
+        "unsafe", "backdoor", "malware", "xss", "sqli", "ssrf",
+        "harden", "secure coding", "static analysis",
+        # Chinese
+        "审计", "安全", "漏洞", "内存", "缓冲区", "溢出",
+        "注入", "硬编码", "配置", "扫描", "渗透", "检测",
+        "审查", "后门", "攻击", "不安全", "默认密码", "默认配置",
+    ]
+    msg_lower = message.lower()
+    return any(kw in msg_lower for kw in audit_keywords)
+
+
 # ── 内部: 运行审计流水线 ─────────────────────────────────────
 
 async def _run_audit(audit_id: str, req: AuditRequest):
@@ -485,116 +511,144 @@ async def _run_chat(chat_id: str, message: str, target: str = "", session_id: st
                 f"> 错误示例: `c_review(file_path=\"auth.c\")`\n"
             )
 
-        # ── 步骤2: 构造消息 (根据实际预读内容决定指令) ──
+        # ── 步骤1.5: 意图检测 ──
+        _is_audit = _is_security_message(message)
+
+        # ── 步骤2: 构造消息 (根据意图和预读内容决定指令) ──
         has_code = bool(pre_read_contents)
 
-        # 构建代码块
-        code_blocks = ""
-        for rel_name, abs_path, content in pre_read_contents:
-            code_blocks += (
-                f"\n### 文件: {rel_name}\n"
-                f"路径: {abs_path}\n"
-                f"```\n{content}\n```\n"
-            )
-
-        # 构建剩余文件提示
-        remaining_hint = ""
-        if remaining_files:
-            if len(remaining_files) <= 10:
-                remaining_hint = (
-                    f"\n> 目标目录内其他文件: {', '.join(remaining_files)}\n"
-                    f"> 如需审查这些文件，请用 read_file 读取。\n"
-                )
-            else:
-                remaining_hint = (
-                    f"\n> 目标目录内还有 {len(remaining_files)} 个其他文件。\n"
-                    f"> 如需审查，请用 read_file 读取。\n"
+        if _is_audit:
+            # ★ 安全审计意图: 使用审计模板（含工具选择提示和 CWE 引导）
+            # 构建代码块
+            code_blocks = ""
+            for rel_name, abs_path, content in pre_read_contents:
+                code_blocks += (
+                    f"\n### 文件: {rel_name}\n"
+                    f"路径: {abs_path}\n"
+                    f"```\n{content}\n```\n"
                 )
 
-        # 审计工具提示: 文件已在消息中时用绝对路径，否则让 Agent 自己读
-        if has_code:
-            # ★ 修复 Bug 2: 如果用户指定了特定文件，约束审计范围
-            scope_constraint = ""
-            if has_specific_files:
-                mentioned = ", ".join(n for n, _, _ in pre_read_contents)
-                scope_constraint = (
-                    f"⚠️ **范围限制**: 用户仅要求审计 `{mentioned}`。"
-                    f"请只对以上文件调用审计工具，不要审计其他文件。\n\n"
-                )
-
-            # ★ 修复 Bug 1: 添加意图→工具匹配提示（中文关键词映射）
-            tool_match_hint = (
-                f"🔧 **工具选择**: 请先分析用户需求中的关键词，只选择匹配的审计工具:\n"
-                f"  - 默认配置/硬编码/调试模式/默认密码/配置问题 → 只需 **insecure_defaults**\n"
-                f"  - 内存安全/缓冲区溢出/UAF/空指针/格式化字符串 → 只需 **c_review**\n"
-                f"  - 注入/SQL注入/XSS/命令注入/路径穿越 → 只需 **injection_scanner**\n"
-                f"  - 综合审计(无特定类型) → 可调用多个工具\n"
-                f"  不要调用所有工具，只调用与用户需求匹配的工具。\n\n"
-            )
-
-            tool_hint = (
-                f"目标根目录: {abs_target_dir}\n\n"
-                f"{tool_match_hint}"
-                f"{scope_constraint}"
-                f"调用审计工具时请使用上面的绝对路径，例如:\n"
-                f"  c_review(file_path=\"{pre_read_contents[0][1]}\")\n"
-                f"  insecure_defaults(file_path=\"{pre_read_contents[0][1]}\")\n"
-            )
-            full_message = (
-                f"## 审计任务\n\n"
-                f"**用户需求**: {message}\n\n"
-                f"**目标**: {target}\n"
-                f"{tool_hint}\n"
-                f"---\n"
-                f"## 目标文件代码 (已预读，无需再调用 read_file)\n"
-                f"{code_blocks}"
-                f"{remaining_hint}"
-                f"---\n"
-                f"请分析以上代码，调用合适的审计工具进行安全检测，"
-                f"然后给出综合审计结论、漏洞列表和修复建议。"
-                f"{path_prefix_hint}"
-            )
-        elif abs_target_dir:
-            # 没有预读到代码: 告诉 Agent 自己读
-            file_list_str = "\n".join(f"  - {f}" for f in remaining_files[:20]) if remaining_files else "(空目录)"
-
-            # ★ 修复 Bug 1: 添加意图→工具匹配提示
-            tool_match_hint = (
-                f"🔧 **工具选择**: 请先分析用户需求中的关键词，只选择匹配的审计工具:\n"
-                f"  - 默认配置/硬编码/调试模式/默认密码/配置问题 → 只需 **insecure_defaults**\n"
-                f"  - 内存安全/缓冲区溢出/UAF/空指针/格式化字符串 → 只需 **c_review**\n"
-                f"  - 注入/SQL注入/XSS/命令注入/路径穿越 → 只需 **injection_scanner**\n"
-                f"  - 综合审计(无特定类型) → 可调用多个工具\n"
-                f"  不要调用所有工具，只调用与用户需求匹配的工具。\n\n"
-            )
-
-            # ★ 修复 Bug 2: 如果用户指定了特定文件，约束审计范围
-            scope_constraint = ""
-            if has_specific_files and remaining_files:
-                mentioned_files = [f for f in remaining_files if any(
-                    f.lower().endswith(name) for name in mentioned_names
-                )] if 'mentioned_names' in dir() else []
-                if mentioned_files:
-                    scope_constraint = (
-                        f"⚠️ **范围限制**: 用户仅要求审计 `{', '.join(mentioned_files)}`。"
-                        f"请只读取和审计这些文件。\n\n"
+            # 构建剩余文件提示
+            remaining_hint = ""
+            if remaining_files:
+                if len(remaining_files) <= 10:
+                    remaining_hint = (
+                        f"\n> 目标目录内其他文件: {', '.join(remaining_files)}\n"
+                        f"> 如需审查这些文件，请用 read_file 读取。\n"
+                    )
+                else:
+                    remaining_hint = (
+                        f"\n> 目标目录内还有 {len(remaining_files)} 个其他文件。\n"
+                        f"> 如需审查，请用 read_file 读取。\n"
                     )
 
-            full_message = (
-                f"## 审计任务\n\n"
-                f"**用户需求**: {message}\n\n"
-                f"**目标目录**: {abs_target_dir}\n"
-                f"**目录内容**:\n{file_list_str}\n\n"
-                f"{tool_match_hint}"
-                f"{scope_constraint}"
-                f"---\n"
-                f"请首先使用 read_file 读取需要分析的文件（使用上面的绝对路径），"
-                f"然后调用审计工具(c_review/insecure_defaults/injection_scanner)进行检测，"
-                f"最后给出综合审计结论和修复建议。"
-                f"{path_prefix_hint}"
-            )
+            if has_code:
+                scope_constraint = ""
+                if has_specific_files:
+                    mentioned = ", ".join(n for n, _, _ in pre_read_contents)
+                    scope_constraint = (
+                        f"⚠️ **范围限制**: 用户仅要求审计 `{mentioned}`。"
+                        f"请只对以上文件调用审计工具，不要审计其他文件。\n\n"
+                    )
+
+                tool_match_hint = (
+                    f"🔧 **工具选择**: 请先分析用户需求中的关键词，只选择匹配的审计工具:\n"
+                    f"  - 默认配置/硬编码/调试模式/默认密码/配置问题 → 只需 **insecure_defaults**\n"
+                    f"  - 内存安全/缓冲区溢出/UAF/空指针/格式化字符串 → 只需 **c_review**\n"
+                    f"  - 注入/SQL注入/XSS/命令注入/路径穿越 → 只需 **injection_scanner**\n"
+                    f"  - 综合审计(无特定类型) → 可调用多个工具\n"
+                    f"  不要调用所有工具，只调用与用户需求匹配的工具。\n\n"
+                )
+
+                tool_hint = (
+                    f"目标根目录: {abs_target_dir}\n\n"
+                    f"{tool_match_hint}"
+                    f"{scope_constraint}"
+                    f"调用审计工具时请使用上面的绝对路径，例如:\n"
+                    f"  c_review(file_path=\"{pre_read_contents[0][1]}\")\n"
+                    f"  insecure_defaults(file_path=\"{pre_read_contents[0][1]}\")\n"
+                )
+                full_message = (
+                    f"## 审计任务\n\n"
+                    f"**用户需求**: {message}\n\n"
+                    f"**目标**: {target}\n"
+                    f"{tool_hint}\n"
+                    f"---\n"
+                    f"## 目标文件代码 (已预读，无需再调用 read_file)\n"
+                    f"{code_blocks}"
+                    f"{remaining_hint}"
+                    f"---\n"
+                    f"请分析以上代码，调用合适的审计工具进行安全检测，"
+                    f"然后给出综合审计结论、漏洞列表和修复建议。"
+                    f"{path_prefix_hint}"
+                )
+            elif abs_target_dir:
+                file_list_str = "\n".join(f"  - {f}" for f in remaining_files[:20]) if remaining_files else "(空目录)"
+
+                tool_match_hint = (
+                    f"🔧 **工具选择**: 请先分析用户需求中的关键词，只选择匹配的审计工具:\n"
+                    f"  - 默认配置/硬编码/调试模式/默认密码/配置问题 → 只需 **insecure_defaults**\n"
+                    f"  - 内存安全/缓冲区溢出/UAF/空指针/格式化字符串 → 只需 **c_review**\n"
+                    f"  - 注入/SQL注入/XSS/命令注入/路径穿越 → 只需 **injection_scanner**\n"
+                    f"  - 综合审计(无特定类型) → 可调用多个工具\n"
+                    f"  不要调用所有工具，只调用与用户需求匹配的工具。\n\n"
+                )
+
+                scope_constraint = ""
+                if has_specific_files and remaining_files:
+                    mentioned_files = [f for f in remaining_files if any(
+                        f.lower().endswith(name) for name in mentioned_names
+                    )] if 'mentioned_names' in dir() else []
+                    if mentioned_files:
+                        scope_constraint = (
+                            f"⚠️ **范围限制**: 用户仅要求审计 `{', '.join(mentioned_files)}`。"
+                            f"请只读取和审计这些文件。\n\n"
+                        )
+
+                full_message = (
+                    f"## 审计任务\n\n"
+                    f"**用户需求**: {message}\n\n"
+                    f"**目标目录**: {abs_target_dir}\n"
+                    f"**目录内容**:\n{file_list_str}\n\n"
+                    f"{tool_match_hint}"
+                    f"{scope_constraint}"
+                    f"---\n"
+                    f"请首先使用 read_file 读取需要分析的文件（使用上面的绝对路径），"
+                    f"然后调用审计工具(c_review/insecure_defaults/injection_scanner)进行检测，"
+                    f"最后给出综合审计结论和修复建议。"
+                    f"{path_prefix_hint}"
+                )
+            else:
+                full_message = message
         else:
-            full_message = message
+            # ★ 非审计意图（格式化/抓取/生成报告等）: 预读内容作为上下文，用户消息作为主指令
+            if pre_read_contents:
+                context_blocks = ""
+                for rel_name, abs_path, content in pre_read_contents:
+                    context_blocks += (
+                        f"\n### 文件: {rel_name}\n"
+                        f"路径: {abs_path}\n"
+                        f"```\n{content}\n```\n"
+                    )
+                full_message = (
+                    f"{message}\n\n"
+                    f"---\n"
+                    f"## 目标文件 (已预读，无需再调用 read_file)\n"
+                    f"{context_blocks}"
+                    f"---\n"
+                    f"请根据用户的需求处理以上文件。"
+                    f"{path_prefix_hint}"
+                )
+            elif abs_target_dir:
+                file_list_str = "\n".join(f"  - {f}" for f in remaining_files[:20]) if remaining_files else "(空目录)"
+                full_message = (
+                    f"{message}\n\n"
+                    f"目标目录: {abs_target_dir}\n"
+                    f"目录内容:\n{file_list_str}"
+                    f"{path_prefix_hint}"
+                )
+            else:
+                full_message = message
 
         # ── 步骤3: 读取 LLM 配置 ──
         config = _load_llm_config()

@@ -67,6 +67,21 @@ When the user asks for a report or your analysis is complete, always suggest:
 - "需要生成 Word 报告吗？" / "Would you like me to generate a Word report?"
 - "需要生成 PPT 执行摘要吗？" / "Would you like an executive summary PPT?"
 
+### Content & Document Tools
+
+For non-audit tasks (formatting, web scraping, document processing), use these tools:
+
+| Tool | Purpose | When to Use |
+|------|---------|-------------|
+| **`format_markdown`** | Format & optimize Markdown | User asks to format/beautify/优化 Markdown, fix CJK spacing/加粗, polish document style |
+| **`fetch_url`** | Fetch web page content | User asks to scrape/crawl/抓取 a URL, fetch web page text |
+
+**Non-audit workflow**: When the user asks to format a document or fetch a URL (NOT security audit),
+skip all security tools. Go directly to the appropriate content tool:
+- "格式化这个 md" → call `format_markdown(file_path="...")`
+- "抓取 https://example.com" → call `fetch_url(url="...")` then save with `write_file`
+- "生成 Word 报告" → call `generate_docx_report(content="...")`
+
 ### Severity Rating
 
 | Severity | Criteria |
