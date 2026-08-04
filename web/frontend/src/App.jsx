@@ -352,6 +352,16 @@ export default function App() {
             return currentTurns;
           });
         },
+        onReportReady: (data) => {
+          // ★ 自动弹出浏览器下载窗口
+          const a = document.createElement('a');
+          a.href = data.url;
+          a.download = data.filename;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          addLogChecked(`📥 报告自动下载中: ${data.filename}`, 'success', sessionToken);
+        },
         onError: () => {
           addLogChecked('⚠️ Agent connection lost', 'error', sessionToken);
         },
